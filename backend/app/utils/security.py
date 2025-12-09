@@ -1,35 +1,71 @@
-"""Security utilities: authentication, encryption, etc."""
-from passlib.context import CryptContext
+from datetime import datetime, timedelta
 from typing import Optional
-import secrets
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.models.database import User
+from app.database import get_db
 
+settings = get_settings()
+
+# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def hash_password(password: str) -> str:
     """Hash a password"""
     return pwd_context.hash(password)
 
+def verify_password(plain: str, hashed: str) -> bool:
+    """Verify password"""
+    return pwd_context.verify(plain, hashed)
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
+    """Create JWT access token"""
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    expire = datetime.utcnow() + expires_delta
+    to_encode = {"sub": str(user_id), "exp": expire}
+    
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
+    )
+    return encoded_jwt
 
-
-def generate_api_key() -> str:
-    """Generate a secure API key"""
-    return secrets.token_urlsafe(32)
-
-
-def encrypt_sensitive_data(data: str) -> str:
-    """Encrypt sensitive health data"""
-    # TODO: Implement encryption (AES, etc.)
-    return data
-
-
-def decrypt_sensitive_data(encrypted_data: str) -> str:
-    """Decrypt sensitive health data"""
-    # TODO: Implement decryption
-    return encrypted_data
-
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
+    """Verify JWT and return current user"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise credentials_exception
+    
+    return user

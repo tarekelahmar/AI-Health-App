@@ -5,7 +5,7 @@ import logging
 
 from app.config import get_settings
 from app.database import engine, create_tables
-from app.api import users, health_data, assessments, protocols
+from app.api import users, health_data, assessments, protocols, wearables
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +48,7 @@ app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(health_data.router, prefix="/api/v1/health-data", tags=["health_data"])
 app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
 app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
+app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearables"])
 
 # Root endpoint
 @app.get("/")
