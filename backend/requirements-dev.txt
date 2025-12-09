@@ -1,0 +1,22 @@
+# Development dependencies
+-r requirements.txt
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Code quality
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
+isort==5.13.2
+
+# Development tools
+ipython==8.20.0
+ipdb==0.13.13
+
+# Database migrations
+alembic==1.13.1
+

@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  health-app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: health-app-prod
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/chroma_db:/app/chroma_db
+      - ./backend/app/core/health_ontology.json:/app/app/core/health_ontology.json
+      - ./backend/knowledge_base:/app/knowledge_base
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

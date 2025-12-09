@@ -1,0 +1,14 @@
+{
+  "name": "health-app-frontend",
+  "version": "0.1.0",
+  "description": "Frontend for AI Health App",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Frontend not yet implemented'",
+    "build": "echo 'Frontend not yet implemented'",
+    "start": "echo 'Frontend not yet implemented'"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+
