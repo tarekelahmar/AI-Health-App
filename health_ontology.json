@@ -1,0 +1,86 @@
+{
+  "dysfunctions": [
+    {
+      "id": "sleep_disorder",
+      "name": "Sleep Quality Dysfunction",
+      "system": "sleep",
+      "severity_levels": ["mild", "moderate", "severe"],
+      "data_types": ["sleep_duration", "sleep_quality_score", "wake_count"],
+      "assessment_thresholds": {
+        "normal": {"sleep_duration_hours": [7, 9]},
+        "mild": {"sleep_duration_hours": [6, 7]},
+        "severe": {"sleep_duration_hours": [0, 6]}
+      },
+      "interventions": [
+        {
+          "name": "Sleep Hygiene Protocol",
+          "type": "lifestyle",
+          "evidence_level": "high",
+          "contraindications": []
+        },
+        {
+          "name": "Magnesium Glycinate",
+          "type": "supplement",
+          "dose": "200-400mg",
+          "timing": "evening",
+          "evidence_level": "moderate"
+        }
+      ]
+    },
+    {
+      "id": "blood_sugar_dysregulation",
+      "name": "Blood Sugar Dysregulation",
+      "system": "metabolic",
+      "severity_levels": ["mild", "moderate", "severe"],
+      "data_types": ["fasting_glucose", "postprandial_glucose", "HbA1c"],
+      "assessment_thresholds": {
+        "normal": {"fasting_glucose_mg_dl": [70, 100]},
+        "mild": {"fasting_glucose_mg_dl": [100, 125]},
+        "severe": {"fasting_glucose_mg_dl": [126, 300]}
+      },
+      "interventions": [
+        {
+          "name": "Chromium Supplementation",
+          "type": "supplement",
+          "dose": "200mcg",
+          "evidence_level": "moderate"
+        }
+      ]
+    },
+    {
+      "id": "low_hrv",
+      "name": "Low Heart Rate Variability",
+      "system": "stress_response",
+      "severity_levels": ["mild", "moderate", "severe"],
+      "data_types": ["hrv_msec", "resting_heart_rate"],
+      "assessment_thresholds": {
+        "normal": {"hrv_msec": [50, 100]},
+        "mild": {"hrv_msec": [30, 50]},
+        "severe": {"hrv_msec": [0, 30]}
+      },
+      "interventions": []
+    }
+  ],
+  "data_types": {
+    "sleep_duration": {
+      "unit": "hours",
+      "range": [0, 24],
+      "source": "wearable"
+    },
+    "fasting_glucose": {
+      "unit": "mg/dL",
+      "range": [40, 400],
+      "source": "lab",
+      "alt_units": {
+        "mmol/L": 0.0555
+      }
+    },
+    "hrv_msec": {
+      "unit": "milliseconds",
+      "range": [0, 200],
+      "source": "wearable"
+    }
+  }
+}
+
+

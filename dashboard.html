@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        header {
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .severity {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .severity.severe {
+            background: #ff6b6b;
+            color: white;
+        }
+        
+        .severity.moderate {
+            background: #ffa500;
+            color: white;
+        }
+        
+        .severity.mild {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .intervention-item {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #667eea;
+        }
+        
+        .intervention-item strong {
+            color: #333;
+        }
+        
+        .daily-action {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 15px;
+            font-size: 1em;
+        }
+        
+        button:hover {
+            background: #764ba2;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 20px 0;
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💚 Your Health Dashboard</h1>
+            <p>Personalized insights powered by functional medicine</p>
+        </header>
+        
+        <div class="dashboard">
+            <!-- Health Status Card -->
+            <div class="card full-width">
+                <h3>📊 Health Status Overview</h3>
+                <div id="statusContainer">
+                    <p>Loading assessment...</p>
+                </div>
+            </div>
+            
+            <!-- Detected Dysfunctions -->
+            <div class="card">
+                <h3>🔍 Detected Dysfunctions</h3>
+                <div id="dysfunctionsContainer">
+                    <p>Loading...</p>
+                </div>
+            </div>
+            
+            <!-- Weekly Protocol -->
+            <div class="card full-width">
+                <h3>📋 This Week's Protocol</h3>
+                <div id="protocolContainer">
+                    <p>Generate assessment first...</p>
+                </div>
+            </div>
+            
+            <!-- Sleep Trends -->
+            <div class="card">
+                <h3>😴 Sleep Trends (30 days)</h3>
+                <div class="chart-container">
+                    <canvas id="sleepChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Glucose Trends -->
+            <div class="card">
+                <h3>🩸 Glucose Levels (30 days)</h3>
+                <div class="chart-container">
+                    <canvas id="glucoseChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- HRV Trends -->
+            <div class="card">
+                <h3>❤️ Heart Rate Variability (30 days)</h3>
+                <div class="chart-container">
+                    <canvas id="hrvChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="card full-width">
+                <h3>🎯 Quick Actions</h3>
+                <button onclick="runAssessment()">▶️ Run Health Assessment</button>
+                <button onclick="generateProtocol()">📅 Generate Weekly Protocol</button>
+                <button onclick="exportData()">📥 Export Report</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = "http://127.0.0.1:8000";
+        const USER_ID = 1; // Change to actual user ID
+        
+        // Fetch and display assessment
+        async function fetchAssessment() {
+            try {
+                const response = await fetch(`${API_BASE}/assess/${USER_ID}`);
+                const data = await response.json();
+                displayAssessment(data);
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+        
+        function displayAssessment(data) {
+            const container = document.getElementById("dysfunctionsContainer");
+            container.innerHTML = data.detected_dysfunctions.map(d => `
+                <div class="intervention-item">
+                    <strong>${d.name}</strong>
+                    <div class="severity ${d.severity}">${d.severity.toUpperCase()}</div>
+                    <p>Confidence: ${(d.confidence * 100).toFixed(0)}%</p>
+                </div>
+            `).join("");
+        }
+        
+        async function runAssessment() {
+            alert("Running assessment... (check console for results)");
+            await fetchAssessment();
+        }
+        
+        async function generateProtocol() {
+            try {
+                const response = await fetch(`${API_BASE}/protocol/${USER_ID}`);
+                const protocol = await response.json();
+                displayProtocol(protocol);
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+        
+        function displayProtocol(protocol) {
+            const container = document.getElementById("protocolContainer");
+            container.innerHTML = protocol.interventions.map((i, idx) => `
+                <div class="intervention-item">
+                    <strong>[Priority ${i.priority}] ${i.intervention_name}</strong>
+                    <p>${i.rationale}</p>
+                    <div>Daily actions:</div>
+                    ${i.daily_actions.map(a => `<div class="daily-action">${a}</div>`).join("")}
+                </div>
+            `).join("");
+        }
+        
+        function exportData() {
+            alert("Export functionality coming soon!");
+        }
+        
+        // Load data on page load
+        window.addEventListener('load', fetchAssessment);
+    </script>
+</body>
+</html>

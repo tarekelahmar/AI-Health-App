@@ -1,0 +1,255 @@
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from datetime import datetime
+import json
+import pandas as pd
+
+from app import models, schemas
+from app.database import engine, get_db, SessionLocal, DATABASE_URL
+from app.dysfunction_detector import DysfunctionDetector
+from app.rag_engine import HealthRAGEngine
+from app.protocol_generator import ProtocolGenerator
+
+# Create database tables
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Health App API", version="0.1.0")
+
+# Initialize health analysis components (lazy initialization for RAG)
+detector = DysfunctionDetector("health_ontology.json")
+rag_engine = None  # Will be initialized on first use
+protocol_gen = ProtocolGenerator("health_ontology.json")
+
+def get_rag_engine():
+    """Lazy initialization of RAG engine to avoid blocking server startup"""
+    global rag_engine
+    if rag_engine is None:
+        print("Initializing RAG engine (this may take a moment)...")
+        rag_engine = HealthRAGEngine("knowledge_base/protocols.md")
+        print("RAG engine initialized!")
+    return rag_engine
+
+# Allow frontend to communicate with backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ==================== USER ENDPOINTS ====================
+
+@app.post("/users/", response_model=schemas.UserResponse)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    """Create a new user"""
+    db_user = models.User(name=user.name, email=user.email)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@app.get("/users/{user_id}", response_model=schemas.UserResponse)
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    """Get user by ID"""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+# ==================== HEALTH DATA INGESTION ====================
+
+@app.post("/health-data/", response_model=schemas.HealthDataPointResponse)
+def add_health_data(
+    user_id: int,
+    data: schemas.HealthDataPointCreate,
+    db: Session = Depends(get_db)
+):
+    """Add a single health data point (lab, symptom, or wearable)"""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    db_data = models.HealthDataPoint(
+        user_id=user_id,
+        data_type=data.data_type,
+        value=data.value,
+        unit=data.unit,
+        source=data.source
+    )
+    db.add(db_data)
+    db.commit()
+    db.refresh(db_data)
+    return db_data
+
+@app.post("/health-data/batch/")
+def upload_health_data_csv(user_id: int, file_path: str, db: Session = Depends(get_db)):
+    """
+    Upload multiple health data points from a CSV file.
+    CSV format:
+    data_type,value,unit,source,timestamp
+    sleep_duration,7.5,hours,wearable,2025-01-01
+    fasting_glucose,105,mg/dL,lab,2025-01-01
+    """
+    try:
+        df = pd.read_csv(file_path)
+        
+        for _, row in df.iterrows():
+            db_data = models.HealthDataPoint(
+                user_id=user_id,
+                data_type=row['data_type'],
+                value=float(row['value']),
+                unit=row['unit'],
+                source=row['source'],
+                timestamp=pd.to_datetime(row['timestamp'])
+            )
+            db.add(db_data)
+        
+        db.commit()
+        return {"status": "success", "rows_uploaded": len(df)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Upload failed: {str(e)}")
+
+@app.get("/health-data/{user_id}")
+def get_user_health_data(user_id: int, db: Session = Depends(get_db)):
+    """Retrieve all health data for a user"""
+    data = db.query(models.HealthDataPoint).filter(
+        models.HealthDataPoint.user_id == user_id
+    ).all()
+    return data
+
+# ==================== HEALTH ASSESSMENT ====================
+
+@app.post("/assess/{user_id}")
+def assess_health(user_id: int, db: Session = Depends(get_db)):
+    """
+    Comprehensive health assessment for a user.
+    Detects dysfunctions and generates RAG-backed insights.
+    """
+    
+    # Get user
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Detect dysfunctions
+    dysfunctions = detector.detect_dysfunctions(user_id, db, days=30)
+    
+    # Prepare user data for RAG
+    recent_data = db.query(models.HealthDataPoint).filter(
+        models.HealthDataPoint.user_id == user_id
+    ).all()
+    
+    labs = {
+        dp.data_type: dp.value 
+        for dp in recent_data 
+        if dp.source == 'lab'
+    }
+    wearables = {
+        dp.data_type: dp.value 
+        for dp in recent_data 
+        if dp.source == 'wearable'
+    }
+    
+    user_data = {
+        'age': 35,  # In production, get from user profile
+        'symptoms': ['fatigue'],  # In production, get from user input
+        'labs': labs,
+        'wearables': wearables
+    }
+    
+    # Generate RAG-backed recommendations (lazy initialization)
+    rag_response = get_rag_engine().generate_health_insight(user_data)
+    
+    # Save assessment
+    for dysfunction in dysfunctions:
+        assessment = models.HealthAssessment(
+            user_id=user_id,
+            dysfunction_id=dysfunction['dysfunction_id'],
+            severity_level=dysfunction['severity'],
+            notes=json.dumps({
+                'confidence': dysfunction['confidence'],
+                'evidence': dysfunction['evidence']
+            })
+        )
+        db.add(assessment)
+    
+    db.commit()
+    
+    return {
+        "user_id": user_id,
+        "assessment_date": datetime.utcnow(),
+        "detected_dysfunctions": dysfunctions,
+        "rag_insights": rag_response['response'],
+        "data_summary": {
+            "labs": labs,
+            "wearables": wearables
+        }
+    }
+
+@app.post("/protocol/{user_id}")
+def generate_weekly_protocol(user_id: int, db: Session = Depends(get_db)):
+    """Generate personalized weekly protocol based on latest assessment"""
+    
+    # Get latest assessments
+    assessments = db.query(models.HealthAssessment).filter(
+        models.HealthAssessment.user_id == user_id
+    ).order_by(models.HealthAssessment.assessment_date.desc()).limit(5).all()
+    
+    dysfunctions = [
+        {
+            'dysfunction_id': a.dysfunction_id,
+            'severity': a.severity_level,
+            'confidence': json.loads(a.notes).get('confidence', 0.5)
+        }
+        for a in assessments
+    ]
+    
+    protocol = protocol_gen.generate_protocol(user_id, dysfunctions)
+    
+    return protocol
+
+# ==================== SIMPLE VALIDATION ====================
+
+def validate_health_data(data_type: str, value: float, unit: str) -> dict:
+    """Basic validation against health ontology"""
+    with open('health_ontology.json') as f:
+        ontology = json.load(f)
+    
+    # Check if data type exists in ontology
+    valid_types = ontology['data_types']
+    if data_type not in valid_types:
+        return {"valid": False, "error": f"Unknown data type: {data_type}"}
+    
+    # Check if value is within reasonable range
+    data_spec = valid_types[data_type]
+    min_val, max_val = data_spec['range']
+    
+    if not (min_val <= value <= max_val):
+        return {
+            "valid": False,
+            "error": f"{data_type} value {value} outside acceptable range [{min_val}, {max_val}]"
+        }
+    
+    return {"valid": True}
+
+# ==================== HEALTH CHECK ====================
+
+@app.get("/")
+def read_root():
+    """Health check endpoint"""
+    return {"message": "Health App API is running!", "version": "0.1.0"}
+
+@app.get("/health/")
+def health_check():
+    """Verify database connection"""
+    try:
+        db = SessionLocal()
+        # Try a simple query
+        db.query(models.User).first()
+        db.close()
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}

@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  health-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: health-app
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    env_file:
+      - .env
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./health_ontology.json:/app/health_ontology.json
+      - ./knowledge_base:/app/knowledge_base
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
