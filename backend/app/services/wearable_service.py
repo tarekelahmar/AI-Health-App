@@ -83,7 +83,7 @@ class WearableDataSynchronizer:
     
     def sync_user_data(self, user_id: int, wearable_tokens: dict, db_session) -> dict:
         """Sync all wearable data for a user"""
-        from app.models.database import HealthDataPoint
+        from app.domain.models.health_data_point import HealthDataPoint
         
         synced = {"fitbit": 0, "oura": 0, "errors": []}
         

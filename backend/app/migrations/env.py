@@ -16,7 +16,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from app.models.database import Base
+from app.core.database import Base
 from app.database import engine
 target_metadata = Base.metadata
 
@@ -39,7 +39,7 @@ def run_migrations_offline() -> None:
 
     """
     # Get database URL from config
-    from app.config import get_settings
+    from app.config.settings import get_settings
     settings = get_settings()
     url = settings.DATABASE_URL
     

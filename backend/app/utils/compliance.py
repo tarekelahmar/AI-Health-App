@@ -38,7 +38,9 @@ def log_compliance_event(
 
 def anonymize_data(user_id: int, db_session) -> dict:
     """GDPR right to be forgotten"""
-    from app.models.database import User, HealthDataPoint, HealthAssessment
+    from app.domain.models.user import User
+    from app.domain.models.health_data_point import HealthDataPoint
+    from app.domain.models.insight import Insight
     
     # Replace identifying info with pseudonyms
     user = db_session.query(User).filter(User.id == user_id).first()
@@ -51,7 +53,8 @@ def anonymize_data(user_id: int, db_session) -> dict:
 
 def export_user_data(user_id: int, db_session) -> dict:
     """GDPR right to data portability"""
-    from app.models.database import User, HealthDataPoint
+    from app.domain.models.user import User
+    from app.domain.models.health_data_point import HealthDataPoint
     
     user = db_session.query(User).filter(User.id == user_id).first()
     if not user:

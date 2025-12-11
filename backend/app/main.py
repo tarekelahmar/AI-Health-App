@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.config import get_settings
-from app.database import engine, create_tables
-from app.api import users, health_data, assessments, protocols, wearables
+from app.config.settings import get_settings
+from app.database import create_tables
+from app.api.v1 import (
+    users, auth, labs, wearables, symptoms, assessments, insights, protocols
+)
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -34,21 +36,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware - all configuration from Settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_CREDENTIALS,
+    allow_methods=settings.CORS_METHODS,
+    allow_headers=settings.CORS_HEADERS,
 )
 
 # Include routers (modular endpoints)
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(health_data.router, prefix="/api/v1/health-data", tags=["health_data"])
-app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
-app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
+app.include_router(labs.router, prefix="/api/v1/labs", tags=["labs"])
 app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearables"])
+app.include_router(symptoms.router, prefix="/api/v1/symptoms", tags=["symptoms"])
+app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
+app.include_router(insights.router, prefix="/api/v1/insights", tags=["insights"])
+app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
 
 # Root endpoint
 @app.get("/")

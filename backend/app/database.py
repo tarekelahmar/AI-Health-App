@@ -1,6 +1,10 @@
 """Database connection and utilities"""
 from app.core.database import engine, SessionLocal, Base, get_db
-from app.models.database import User, HealthDataPoint, HealthAssessment
+# Import all domain models to ensure they're registered with Base
+from app.domain.models import (
+    user, lab_result, wearable_sample, symptom, questionnaire, 
+    insight, protocol, health_data_point
+)
 
 
 def create_tables():

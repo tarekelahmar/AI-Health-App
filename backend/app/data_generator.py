@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 from app.core.database import SessionLocal
-from app.models.database import User, HealthDataPoint
+from app.domain.models.user import User
+from app.domain.models.health_data_point import HealthDataPoint
 
 def generate_simulated_health_data(days: int = 30) -> list:
     """

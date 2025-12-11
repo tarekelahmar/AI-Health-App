@@ -3,11 +3,11 @@ import os
 from unittest.mock import MagicMock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models.database import Base
+from app.core.database import Base
 from app.database import get_db
 
 # Mock RAG engine before importing app to avoid OpenAI API calls during import
-with patch('app.services.rag_engine.HealthRAGEngine') as mock_rag:
+with patch('app.engine.rag.retriever.HealthRAGEngine') as mock_rag:
     mock_rag_instance = MagicMock()
     mock_rag.return_value = mock_rag_instance
     from app.main import app
@@ -33,3 +33,9 @@ def db():
     Base.metadata.create_all(bind=engine)
     yield TestingSessionLocal()
     Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture
+def client():
+    """Test client for API integration tests"""
+    from fastapi.testclient import TestClient
+    return TestClient(app)

@@ -1,16 +1,16 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from app.core.config import DATABASE_URL, DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_POOL_PRE_PING
+from app.config.settings import get_settings
 
-from app.core.config import DB_POOL_SIZE, DB_MAX_OVERFLOW, DB_POOL_PRE_PING
+settings = get_settings()
 
 # Create SQLAlchemy engine
 engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=DB_POOL_PRE_PING,
-    pool_size=DB_POOL_SIZE,
-    max_overflow=DB_MAX_OVERFLOW
+    settings.DATABASE_URL,
+    pool_pre_ping=settings.DB_POOL_PRE_PING,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW
 )
 
 # Create SessionLocal class

@@ -1,4 +1,5 @@
-"""API routes"""
-from app.api import users, health_data, assessments, protocols, wearables
+"""API routes - all endpoints are in v1/"""
+# All API endpoints are now in app.api.v1
+# This file exists for backward compatibility only
 
-__all__ = ["users", "health_data", "assessments", "protocols", "wearables"]
+__all__ = []
