@@ -1,61 +1,221 @@
 # AI Health App
 
-A FastAPI-based health application with Supabase database integration.
+A FastAPI-based health application with AI-powered functional health assessment and protocol generation.
+
+## Features
+
+- **User Management**: Secure authentication and user profiles
+- **Health Data Tracking**: Lab results, wearable device data, symptoms, and questionnaires
+- **AI-Powered Insights**: Automated health analysis and dysfunction detection
+- **Protocol Generation**: Personalized health protocols based on assessments
+- **RAG Engine**: Retrieval-Augmented Generation for evidence-based recommendations
+- **Wearable Integration**: Support for Fitbit, Oura, and Whoop devices
+
+## Architecture
+
+The application follows Domain-Driven Design (DDD) principles with a clean architecture:
+
+```
+backend/
+├── app/
+│   ├── api/v1/          # API endpoints (FastAPI routers)
+│   ├── config/           # Configuration and settings
+│   ├── core/             # Core database and utilities
+│   ├── domain/           # Domain layer
+│   │   ├── models/       # SQLAlchemy ORM models
+│   │   ├── repositories/ # Data access layer
+│   │   └── schemas/      # Pydantic schemas
+│   ├── engine/           # Business logic and AI engines
+│   │   ├── analytics/    # Data analysis tools
+│   │   ├── rag/          # RAG engine for knowledge retrieval
+│   │   └── reasoning/    # AI reasoning engines
+│   ├── services/         # Application services
+│   └── utils/            # Utility functions
+├── tests/                # Test suite (unit, integration, e2e)
+├── knowledge_base/       # Knowledge base for RAG
+└── migrations/           # Database migrations (Alembic)
+```
 
 ## Setup
 
+### Prerequisites
+
+- Python 3.9+
+- PostgreSQL (or Supabase)
+- Redis (optional, for caching)
+
 ### 1. Virtual Environment
 
-Activate the virtual environment:
+Create and activate a virtual environment:
+
 ```bash
-source venv/bin/activate
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 2. Environment Variables
+### 2. Install Dependencies
 
-Copy the example environment file and configure your Supabase connection:
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Environment Variables
+
+Copy the example environment file:
+
 ```bash
 cp env.example .env
 ```
 
-Edit `.env` and add your Supabase database connection string:
-```
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@[PROJECT-REF].supabase.co:5432/postgres
-```
+Edit `.env` and configure your settings:
 
-**To get your Supabase connection string:**
-1. Go to your Supabase project dashboard
-2. Navigate to **Settings** > **Database**
-3. Find the **Connection string** section
-4. Copy the URI connection string
-5. Replace `[YOUR-PASSWORD]` with your database password
+```env
+# Database
+DATABASE_URL=postgresql://postgres:password@localhost:5432/health_app
 
-### 3. Database Connection
+# Security (IMPORTANT: Change in production!)
+SECRET_KEY=your-super-secret-key-change-in-prod
+ENVIRONMENT=development
 
-The database connection is configured in `app/database.py` using SQLAlchemy. The connection will automatically use the `DATABASE_URL` from your `.env` file.
+# OpenAI (for RAG and AI features)
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4
 
-## Project Structure
+# Vector DB
+CHROMA_DB_PATH=./chroma_db
 
-```
-health-app/
-├── app/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI app
-│   ├── database.py           # Supabase/PostgreSQL setup
-│   ├── models.py             # Data models
-│   └── schemas.py            # API schemas
-├── tests/
-│   └── test_api.py
-├── knowledge_base/
-│   └── protocols.md
-├── health_ontology.json
-├── requirements.txt
-└── README.md
+# CORS
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
-## Running the Application
+**Security Note**: The `SECRET_KEY` must be changed from the default value in production. It should be at least 32 characters long.
+
+### 4. Database Setup
+
+**IMPORTANT**: Database schema is managed exclusively through Alembic migrations.
+
+Run database migrations:
+
+```bash
+# Using Make (recommended)
+make migrate-upgrade
+
+# Or using the migration script
+python scripts/migrate.py upgrade
+
+# Or directly with Alembic
+alembic upgrade head
+```
+
+**Never manually create tables or run SQL directly on the database!**
+
+### 5. Run the Application
+
+Development mode:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
+Production mode:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+The API will be available at:
+- API: http://localhost:8000
+- Docs: http://localhost:8000/docs
+- Health: http://localhost:8000/health
+
+## API Endpoints
+
+- `/api/v1/auth` - Authentication (login, token refresh)
+- `/api/v1/users` - User management
+- `/api/v1/labs` - Lab results
+- `/api/v1/wearables` - Wearable device data
+- `/api/v1/symptoms` - Symptom tracking
+- `/api/v1/assessments` - Health assessments
+- `/api/v1/insights` - AI-generated insights
+- `/api/v1/protocols` - Health protocols
+
+## Testing
+
+Run the test suite:
+
+```bash
+# All tests
+pytest
+
+# With coverage
+pytest --cov=app --cov-report=html
+
+# Specific test type
+pytest tests/unit/
+pytest tests/integration/
+pytest tests/e2e/
+```
+
+## Docker
+
+Build and run with Docker:
+
+```bash
+docker-compose up --build
+```
+
+## Database Migrations
+
+**IMPORTANT**: All database schema changes must go through Alembic migrations.
+
+### Quick Commands
+
+```bash
+# Create a new migration (after modifying models)
+make migrate-create MESSAGE="description of change"
+
+# Apply all pending migrations
+make migrate-upgrade
+
+# Check current migration version
+make migrate-current
+
+# View migration history
+make migrate-history
+```
+
+See [MIGRATIONS.md](backend/MIGRATIONS.md) for detailed migration guide.
+
+### Migration Rules
+
+- ❌ **Never change models without a migration**
+- ✅ **One migration per schema change**
+- ✅ **No manual SQL on production/RDS**
+- ✅ **Always review autogenerated migrations**
+
+## Development
+
+### Code Quality
+
+- Follow PEP 8 style guidelines
+- Use type hints where possible
+- Add docstrings to functions and classes
+- Run linters: `pylint app/` or `flake8 app/`
+
+### Project Structure Guidelines
+
+- **Domain Models**: Pure business entities in `domain/models/`
+- **Repositories**: Data access logic in `domain/repositories/`
+- **Schemas**: API request/response models in `domain/schemas/`
+- **API Routes**: Endpoint definitions in `api/v1/`
+- **Services**: Business logic in `services/` or `engine/`
+- **Config**: All configuration in `config/settings.py`
+
+## License
+
+[Add your license here]
+
+## Contributing
+
+[Add contributing guidelines here]

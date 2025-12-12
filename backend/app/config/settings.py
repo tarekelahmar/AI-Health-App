@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     ASSESSMENT_MAX_RESULTS: int = 5
     
     # Security
-    SECRET_KEY: str = "change-me-in-production"
+    SECRET_KEY: str = "change-me-in-production"  # MUST be changed in production!
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     ENABLE_EMAIL_ALERTS: bool = True
     ENABLE_RAG_ENGINE: bool = True
     ENABLE_WEARABLE_SYNC: bool = True
+    ENABLE_RATE_LIMITING: bool = True
+    
+    # Rate Limiting
+    RATE_LIMIT_INSIGHTS: str = "10/minute"  # Insight generation endpoints
+    RATE_LIMIT_LLM: str = "5/minute"  # LLM-backed endpoints (protocols, etc.)
+    RATE_LIMIT_AUTH: str = "5/minute"  # Authentication endpoints
+    RATE_LIMIT_GENERAL: str = "100/hour"  # General API endpoints
     
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -152,11 +159,23 @@ class Settings(BaseSettings):
     
     @model_validator(mode="after")
     def set_computed_fields(self):
-        """Set computed fields based on other settings"""
+        """Set computed fields based on other settings and validate security"""
         if self.DEBUG:
             self.LOG_LEVEL = "DEBUG"
         if not self.DEBUG and self.FRONTEND_URL:
             self.ALLOWED_ORIGINS = [self.FRONTEND_URL]
+        
+        # Validate security settings
+        if self.ENVIRONMENT == "production":
+            if self.SECRET_KEY == "change-me-in-production":
+                raise ValueError(
+                    "SECRET_KEY must be changed from default value in production!"
+                )
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    "SECRET_KEY must be at least 32 characters long in production"
+                )
+        
         return self
 
 

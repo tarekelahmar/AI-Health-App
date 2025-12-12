@@ -1,21 +1,10 @@
-"""Unit tests for analytics layer"""
-import pytest
+"""Unit tests for analytics layer
 
-# Placeholder for analytics unit tests
-# These will be implemented after analytics components are complete
+NOTE: This file has been replaced with comprehensive test files:
+- test_time_series.py - Time series aggregation and merging
+- test_correlation.py - Correlation analysis
+- test_rolling_metrics.py - Rolling window statistics
 
-
-def test_time_series_placeholder():
-    """Placeholder test - to be implemented"""
-    pass
-
-
-def test_correlation_placeholder():
-    """Placeholder test - to be implemented"""
-    pass
-
-
-def test_rolling_metrics_placeholder():
-    """Placeholder test - to be implemented"""
-    pass
+See those files for detailed analytics tests.
+"""
 

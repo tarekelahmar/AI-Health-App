@@ -18,6 +18,20 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from app.core.database import Base
 from app.database import engine
+
+# Import all models to ensure they're registered with Base.metadata
+# This is required for Alembic autogenerate to detect all tables
+from app.domain.models import (
+    User,
+    LabResult,
+    WearableSample,
+    Symptom,
+    Questionnaire,
+    Insight,
+    Protocol,
+    HealthDataPoint,
+)
+
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

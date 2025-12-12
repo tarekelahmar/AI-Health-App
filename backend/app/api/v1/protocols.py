@@ -7,6 +7,7 @@ from app.domain.models.protocol import Protocol
 from app.core.database import get_db
 from app.engine.reasoning.protocol_generator import ProtocolGenerator
 from app.config.settings import get_settings
+from app.config.rate_limiting import rate_limit_user
 
 router = APIRouter()
 
@@ -14,6 +15,7 @@ settings = get_settings()
 protocol_gen = ProtocolGenerator(settings.HEALTH_ONTOLOGY_PATH)
 
 @router.post("/{user_id}")
+@rate_limit_user(settings.RATE_LIMIT_LLM if settings.ENABLE_RATE_LIMITING else "1000/minute")
 def generate_protocol(user_id: int, db: Session = Depends(get_db)):
     """Generate weekly protocol based on latest assessment"""
     user = db.query(User).filter(User.id == user_id).first()

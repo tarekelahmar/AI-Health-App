@@ -29,10 +29,20 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture
+def app_fixture():
+    """FastAPI app fixture"""
+    return app
+
+@pytest.fixture
 def db():
     Base.metadata.create_all(bind=engine)
     yield TestingSessionLocal()
     Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture
+def db_session(db):
+    """Database session fixture for integration tests"""
+    yield db
 
 @pytest.fixture
 def client():
