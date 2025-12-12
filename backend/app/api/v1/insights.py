@@ -23,6 +23,7 @@ settings = get_settings()
 @router.post("/sleep", summary="Generate sleep-related insights")
 @rate_limit_user(settings.RATE_LIMIT_INSIGHTS if settings.ENABLE_RATE_LIMITING else "1000/minute")
 def generate_sleep_insights(
+    request: Request,
     window_days: int = 30,
     current_user: User = Depends(get_current_user),
     engine: InsightEngine = Depends(get_insight_engine),

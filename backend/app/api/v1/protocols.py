@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.domain.models.user import User
@@ -16,7 +16,7 @@ protocol_gen = ProtocolGenerator(settings.HEALTH_ONTOLOGY_PATH)
 
 @router.post("/{user_id}")
 @rate_limit_user(settings.RATE_LIMIT_LLM if settings.ENABLE_RATE_LIMITING else "1000/minute")
-def generate_protocol(user_id: int, db: Session = Depends(get_db)):
+def generate_protocol(request: Request, user_id: int, db: Session = Depends(get_db)):
     """Generate weekly protocol based on latest assessment"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

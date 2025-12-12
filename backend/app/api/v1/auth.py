@@ -1,6 +1,6 @@
 """Authentication endpoints"""
 from typing import Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.domain.models.user import User
@@ -22,6 +22,7 @@ settings = get_settings()
 @router.post("/login")
 @rate_limit_ip(settings.RATE_LIMIT_AUTH if settings.ENABLE_RATE_LIMITING else "1000/minute")
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     user_repo: UserRepository = Depends(get_user_repo)
 ) -> Dict[str, Any]:
