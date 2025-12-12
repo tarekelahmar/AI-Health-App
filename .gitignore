@@ -34,6 +34,11 @@ build/
 .env
 .env.local
 .env.*.local
+# Allow template files
+!.env.example
+!.env.dev
+!.env.staging
+!.env.prod
 
 # Database
 *.db
