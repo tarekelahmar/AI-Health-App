@@ -26,6 +26,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def init_db():
+    """MVP-safe: create missing tables"""
+    from app.domain.models.baseline import Baseline
+    Base.metadata.create_all(bind=engine)
+
+
 def get_db() -> Generator[Session, None, None]:
     """
     Dependency to get database session.

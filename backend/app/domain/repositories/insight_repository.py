@@ -60,3 +60,13 @@ class InsightRepository:
             .all()
         )
 
+    def list_by_user(self, user_id: int, limit: int = 50) -> List[Insight]:
+        """List insights for user, ordered newest first"""
+        return (
+            self.db.query(Insight)
+            .filter(Insight.user_id == user_id)
+            .order_by(Insight.generated_at.desc())
+            .limit(limit)
+            .all()
+        )
+

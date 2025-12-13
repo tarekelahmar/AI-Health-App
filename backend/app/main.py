@@ -9,9 +9,13 @@ import logging
 from app.config.settings import get_settings, validate_config
 from app.config.logging import setup_logging
 from app.config.rate_limiting import setup_rate_limiting
+from app.core.database import init_db
 from app.api.v1 import (
-    users, auth, labs, wearables, symptoms, assessments, insights, protocols
+    users, auth, labs, wearables, symptoms, assessments, insights, protocols, metrics
 )
+from app.api.v1.health_data import router as health_data_router
+from app.api.v1.baselines import router as baselines_router
+from app.api.v1.coverage import router as coverage_router
 
 settings = get_settings()
 
@@ -35,8 +39,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     
-    # Note: Database schema is managed by Alembic migrations
-    # Run 'alembic upgrade head' to apply migrations
+    # MVP-safe: create missing tables (e.g., baselines)
+    init_db()
     logger.info("Database connection ready (migrations should be applied separately)")
     
     yield
@@ -74,8 +78,12 @@ app.include_router(labs.router, prefix="/api/v1/labs", tags=["labs"])
 app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearables"])
 app.include_router(symptoms.router, prefix="/api/v1/symptoms", tags=["symptoms"])
 app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
-app.include_router(insights.router, prefix="/api/v1/insights", tags=["insights"])
+app.include_router(insights.router, prefix="/api/v1/insights")
 app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
+app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
+app.include_router(health_data_router, prefix="/api/v1", tags=["health-data"])
+app.include_router(baselines_router, prefix="/api/v1", tags=["baselines"])
+app.include_router(coverage_router, prefix="/api/v1", tags=["coverage"])
 
 # Root endpoint
 @app.get("/")

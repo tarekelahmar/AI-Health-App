@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]
-    CORS_CREDENTIALS: bool = True
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]  # Frontend origins
+    CORS_CREDENTIALS: bool = False  # Must be False when using specific origins
     CORS_METHODS: List[str] = ["*"]
     CORS_HEADERS: List[str] = ["*"]
     ALLOWED_ORIGINS: List[str] = [

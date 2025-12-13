@@ -1,74 +1,95 @@
-import { useEffect, useState } from 'react';
-import client from '../api/client';
+import { useEffect, useState } from "react";
+import { Insight } from "../types/Insight";
+import { MetricSeriesResponse } from "../types/MetricSeries";
+import { fetchInsightsFeed, runInsightsLoop } from "../api/insights";
+import { fetchMetricSeries } from "../api/metrics";
+import { InsightFeed } from "../components/InsightFeed";
+import { MetricChart } from "../components/MetricChart";
+
+const METRIC_OPTIONS: { key: string; label: string }[] = [
+  { key: "sleep_duration", label: "Sleep Duration" },
+  { key: "sleep_efficiency", label: "Sleep Efficiency" },
+  { key: "resting_hr", label: "Resting HR" },
+  { key: "hrv_rmssd", label: "HRV (RMSSD)" },
+  { key: "steps", label: "Steps" },
+  { key: "sleep_quality", label: "Sleep Quality (1–5)" },
+  { key: "energy", label: "Energy (1–5)" },
+  { key: "stress", label: "Stress (1–5)" },
+];
 
 export default function Dashboard() {
-  const [user, setUser] = useState(null);
-  const [assessment, setAssessment] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const USER_ID = 1;
+
+  const [insights, setInsights] = useState<Insight[]>([]);
+  const [series, setSeries] = useState<MetricSeriesResponse | null>(null);
+  const [metricKey, setMetricKey] = useState<string>("sleep_duration");
+  const [loading, setLoading] = useState(false);
+
+  async function loadAll(selectedMetric: string) {
+    const feed = await fetchInsightsFeed(USER_ID);
+    const metricSeries = await fetchMetricSeries(USER_ID, selectedMetric);
+    setInsights(feed.items);
+    setSeries(metricSeries);
+  }
+
+  async function handleRunInsights() {
+    setLoading(true);
+    await runInsightsLoop(USER_ID);
+    await loadAll(metricKey);
+    setLoading(false);
+  }
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const userRes = await client.get('/users/me');
-        setUser(userRes.data);
+    loadAll(metricKey);
+  }, [metricKey]);
 
-        const assessmentRes = await client.get(`/assessments/${userRes.data.id}`);
-        setAssessment(assessmentRes.data);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  if (loading) return <div>Loading...</div>;
+  const metricLabel = METRIC_OPTIONS.find((m) => m.key === metricKey)?.label ?? metricKey;
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Health Dashboard</h1>
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-xl font-bold">Health Dashboard</h1>
+        <button
+          onClick={handleRunInsights}
+          disabled={loading}
+          className="px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-50"
+        >
+          {loading ? "Running..." : "Run Insights"}
+        </button>
+      </div>
 
-      {user && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-2">Welcome, {user.name}</h2>
-          <p className="text-gray-600">{user.email}</p>
-        </div>
-      )}
+      <div className="text-xs text-gray-500 mb-2">
+        Insights are informational only and not medical diagnoses.
+      </div>
 
-      {assessment && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Detected Issues</h3>
-            {assessment.dysfunctions.map((d) => (
-              <div key={d.dysfunction_id} className="mb-4 p-4 bg-gray-50 rounded">
-                <h4 className="font-semibold">{d.name}</h4>
-                <span className={`inline-block mt-2 px-3 py-1 rounded text-white text-sm font-semibold
-                  ${d.severity === 'severe' ? 'bg-red-500' : 
-                    d.severity === 'moderate' ? 'bg-yellow-500' : 
-                    'bg-green-500'}`}>
-                  {d.severity.toUpperCase()}
-                </span>
-              </div>
+      <div className="bg-white border rounded-lg p-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium">Metric</label>
+          <select
+            value={metricKey}
+            onChange={(e) => setMetricKey(e.target.value)}
+            className="border rounded px-2 py-1 text-sm"
+          >
+            {METRIC_OPTIONS.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.label}
+              </option>
             ))}
-          </div>
+          </select>
+        </div>
+      </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
-            <button className="w-full bg-blue-600 text-white py-2 rounded mb-2">
-              Run Assessment
-            </button>
-            <button className="w-full bg-blue-600 text-white py-2 rounded mb-2">
-              Generate Protocol
-            </button>
-            <button className="w-full bg-blue-600 text-white py-2 rounded">
-              Connect Wearable
-            </button>
+      {series && <MetricChart series={series} title={metricLabel} />}
+
+      <div className="bg-white border rounded-lg p-4 shadow-sm">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold">Insights</h2>
+          <div className="text-xs text-gray-500">
+            {insights.length} total • {insights.filter(i => i.metric_key === metricKey).length} for {metricLabel}
           </div>
         </div>
-      )}
+        <InsightFeed insights={insights} filterByMetric={metricKey} />
+      </div>
     </div>
   );
 }
-

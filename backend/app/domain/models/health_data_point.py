@@ -9,7 +9,7 @@ class HealthDataPoint(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    data_type = Column(String)  # e.g., "sleep_duration", "fasting_glucose"
+    metric_type = Column("data_type", String)  # Maps Python attribute 'metric_type' to DB column 'data_type'
     value = Column(Float)
     unit = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)

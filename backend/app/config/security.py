@@ -17,8 +17,8 @@ from app.domain.repositories import UserRepository
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# OAuth2 scheme
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# OAuth2 scheme - auto_error=False means it returns None instead of raising 401
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def hash_password(password: str) -> str:
@@ -95,7 +95,7 @@ def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None)
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme),
     user_repo: UserRepository = Depends(get_user_repo)
 ) -> User:
     """
@@ -116,6 +116,9 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if token is None:
+        raise credentials_exception
     
     try:
         payload = jwt.decode(

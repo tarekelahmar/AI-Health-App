@@ -8,6 +8,9 @@ from .questionnaire_repository import QuestionnaireRepository
 from .insight_repository import InsightRepository
 from .protocol_repository import ProtocolRepository
 from .health_data_repository import HealthDataRepository
+from .signal_repository import SignalRepository
+from .baseline_repository import BaselineRepository
+from .experiment_repository import ExperimentRepository
 
 __all__ = [
     "UserRepository",
@@ -18,5 +21,8 @@ __all__ = [
     "InsightRepository",
     "ProtocolRepository",
     "HealthDataRepository",
+    "SignalRepository",
+    "BaselineRepository",
+    "ExperimentRepository",
 ]
 

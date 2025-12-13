@@ -15,31 +15,31 @@ def seed_demo_data():
     db = SessionLocal()
 
     try:
-        print("🌱 Seeding demo data...")
+    print("🌱 Seeding demo data...")
 
-        # ---- User ----
-        # Check if user already exists
-        user = db.query(User).filter(User.email == "demo@example.com").first()
-        if user:
-            print(f"✅ User already exists (ID: {user.id}), using existing user...")
-        else:
-            user = User(
-                name="Demo User",
-                email="demo@example.com",
-                hashed_password="demo_hash",
-                created_at=datetime.utcnow(),
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            print(f"✅ Created new user (ID: {user.id})")
+    # ---- User ----
+    # Check if user already exists
+    user = db.query(User).filter(User.email == "demo@example.com").first()
+    if user:
+        print(f"✅ User already exists (ID: {user.id}), using existing user...")
+    else:
+        user = User(
+            name="Demo User",
+            email="demo@example.com",
+            hashed_password="demo_hash",
+            created_at=datetime.utcnow(),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        print(f"✅ Created new user (ID: {user.id})")
 
-        # ---- Wearable data (sleep + HRV) ----
+    # ---- Wearable data (sleep + HRV) ----
         # Use upsert pattern: check if sample exists before adding
         wearable_samples_created = 0
         wearable_samples_existing = 0
         
-        for i in range(14):
+    for i in range(14):
             target_date = datetime.utcnow() - timedelta(days=i)
             
             # Sleep duration sample
@@ -52,13 +52,13 @@ def seed_demo_data():
             ).first()
             
             if not sleep_sample:
-                db.add(
-                    WearableSample(
-                        user_id=user.id,
-                        device_type="fitbit",
-                        metric_type="sleep_duration",
-                        value=6.5 + i * 0.1,
-                        unit="hours",
+        db.add(
+            WearableSample(
+                user_id=user.id,
+                device_type="fitbit",
+                metric_type="sleep_duration",
+                value=6.5 + i * 0.1,
+                unit="hours",
                         timestamp=target_date,
                     )
                 )
@@ -76,13 +76,13 @@ def seed_demo_data():
             ).first()
             
             if not hrv_sample:
-                db.add(
-                    WearableSample(
-                        user_id=user.id,
-                        device_type="fitbit",
-                        metric_type="hrv",
-                        value=75 - i,
-                        unit="ms",
+        db.add(
+            WearableSample(
+                user_id=user.id,
+                device_type="fitbit",
+                metric_type="hrv",
+                value=75 - i,
+                unit="ms",
                         timestamp=target_date,
                     )
                 )
@@ -95,7 +95,7 @@ def seed_demo_data():
         if wearable_samples_existing > 0:
             print(f"ℹ️  Skipped {wearable_samples_existing} existing wearable samples")
 
-        # ---- Lab result ----
+    # ---- Lab result ----
         # Check if this specific lab result already exists (same test, same day)
         today = datetime.utcnow().date()
         lab_result = db.query(LabResult).filter(
@@ -105,21 +105,21 @@ def seed_demo_data():
         ).first()
         
         if not lab_result:
-            db.add(
-                LabResult(
-                    user_id=user.id,
-                    test_name="vitamin_d",
-                    value=42,
-                    unit="ng/mL",
-                    reference_range="30-100",
-                    timestamp=datetime.utcnow(),
-                )
-            )
+    db.add(
+        LabResult(
+            user_id=user.id,
+            test_name="vitamin_d",
+            value=42,
+            unit="ng/mL",
+            reference_range="30-100",
+            timestamp=datetime.utcnow(),
+        )
+    )
             print("✅ Created new lab result")
         else:
             print(f"ℹ️  Lab result for vitamin_d already exists for today, skipping...")
 
-        db.commit()
+    db.commit()
         print("✅ Demo data seeded successfully (idempotent - safe to rerun).")
 
     except Exception as e:
@@ -127,7 +127,7 @@ def seed_demo_data():
         print(f"❌ Error seeding data: {e}")
         raise
     finally:
-        db.close()
+    db.close()
 
 
 if __name__ == "__main__":

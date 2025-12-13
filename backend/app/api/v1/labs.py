@@ -2,14 +2,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 
 from app.domain.models.lab_result import LabResult
 from app.domain.schemas.lab_result import LabResultCreate, LabResultResponse
 from app.core.database import get_db
 from app.config.security import get_current_user
 from app.domain.models.user import User
+from app.services.observe import observe_signal
+from app.api.public_router import public_router
 
-router = APIRouter()
+router = public_router(prefix="", tags=["labs"])
 
 @router.post("/", response_model=LabResultResponse, status_code=201)
 def create_lab_result(
@@ -18,9 +21,25 @@ def create_lab_result(
     db: Session = Depends(get_db)
 ):
     """Add a new lab result"""
-    db_lab = LabResult(
+    # Use observe_signal to validate, normalize, and score reliability
+    signal = observe_signal(
         user_id=current_user.id,
-        **lab_result.model_dump()
+        metric_key=lab_result.test_name,
+        value=lab_result.value,
+        unit=lab_result.unit,
+        timestamp=datetime.utcnow(),  # LabResult model has default, but we use current time
+        source="lab",
+    )
+    
+    # Persist to LabResult using the validated/normalized signal
+    db_lab = LabResult(
+        user_id=signal.user_id,
+        test_name=signal.metric_key,
+        value=signal.value,
+        unit=signal.unit,
+        timestamp=signal.timestamp,
+        reference_range=lab_result.reference_range,
+        lab_name=lab_result.lab_name,
     )
     db.add(db_lab)
     db.commit()

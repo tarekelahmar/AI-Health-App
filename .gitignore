@@ -81,3 +81,9 @@ tmp/
 temp/
 *.tmp
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/node_modules/
+backend/test.db

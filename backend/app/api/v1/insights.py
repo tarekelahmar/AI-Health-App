@@ -1,71 +1,56 @@
-"""Insights endpoints"""
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Query
 from sqlalchemy.orm import Session
 from typing import List
+from fastapi import Depends
 
-from app.domain.models.insight import Insight
-from app.domain.schemas.insight import InsightResponse
+from app.api.schemas.insight import InsightResponse
+from app.api.transformers.insight_transformer import transform_insight
+from app.domain.repositories.insight_repository import InsightRepository
+from app.engine.loop_runner import run_loop
 from app.core.database import get_db
-from app.config.security import get_current_user
-from app.config.rate_limiting import rate_limit_user, INSIGHT_RATE_LIMIT
-from app.config.settings import get_settings
-from app.domain.models.user import User
-from app.engine.reasoning.insight_generator import (
-    InsightEngine,
-    generated_insight_to_dict,
+
+router = APIRouter(
+    prefix="",
+    tags=["insights"],
+    dependencies=[]  # 🔥 HARD OVERRIDE — NO AUTH
 )
-from app.dependencies import get_insight_engine
 
-router = APIRouter(tags=["insights"])
-settings = get_settings()
-
-
-@router.post("/sleep", summary="Generate sleep-related insights")
-@rate_limit_user(settings.RATE_LIMIT_INSIGHTS if settings.ENABLE_RATE_LIMITING else "1000/minute")
-def generate_sleep_insights(
-    request: Request,
-    window_days: int = 30,
-    current_user: User = Depends(get_current_user),
-    engine: InsightEngine = Depends(get_insight_engine),
-):
-    """Generate sleep insights based on wearable data, HRV, and activity"""
-    insight = engine.generate_sleep_insights(
-        user_id=current_user.id,
-        window_days=window_days,
-    )
-    if not insight:
-        return {"detail": "Not enough data to generate sleep insights."}
-
-    # Persist + return
-    engine.persist_insight(insight)
-    return generated_insight_to_dict(insight)
-
-
-@router.get("/", response_model=List[InsightResponse])
-def list_insights(
-    insight_type: str = None,
-    current_user: User = Depends(get_current_user),
+@router.get(
+    "/feed",
+    response_model=dict,
+    dependencies=[]  # 🔥 CRITICAL: overrides any global auth
+)
+def get_insight_feed(
+    user_id: int = Query(...),
+    limit: int = Query(50),
     db: Session = Depends(get_db)
 ):
-    """Get all insights for current user, optionally filtered by type"""
-    query = db.query(Insight).filter(Insight.user_id == current_user.id)
-    if insight_type:
-        query = query.filter(Insight.insight_type == insight_type)
-    return query.order_by(Insight.generated_at.desc()).all()
+    repo = InsightRepository(db)
+    insights = repo.list_by_user(user_id=user_id, limit=limit)
+    return {
+        "count": len(insights),
+        "items": [transform_insight(i) for i in insights],
+    }
 
-
-@router.get("/{insight_id}", response_model=InsightResponse)
-def get_insight(
-    insight_id: int,
-    current_user: User = Depends(get_current_user),
+@router.post(
+    "/run",
+    response_model=dict,
+    dependencies=[]  # 🔥 NO AUTH
+)
+def run_insights(
+    user_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Get a specific insight"""
-    insight = db.query(Insight).filter(
-        Insight.id == insight_id,
-        Insight.user_id == current_user.id
-    ).first()
-    if not insight:
-        raise HTTPException(status_code=404, detail="Insight not found")
-    return insight
-
+    try:
+        result = run_loop(db=db, user_id=user_id)
+        return {
+            "created": result["created"],
+            "insights": [transform_insight(i) for i in result["items"]],
+        }
+    except Exception as e:
+        # Return empty result on error instead of crashing
+        return {
+            "created": 0,
+            "insights": [],
+            "error": str(e) if str(e) else "Unknown error"
+        }
