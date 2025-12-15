@@ -10,17 +10,52 @@ from app.config.settings import get_settings, validate_config
 from app.config.logging import setup_logging
 from app.config.rate_limiting import setup_rate_limiting
 from app.core.database import init_db
+from app.core.logging import configure_logging, get_logger
+from app.middleware.request_id import RequestIdMiddleware
+from app.middleware.metrics import MetricsMiddleware
+from app.api.v1.metrics_system import router as metrics_system_router
 from app.api.v1 import (
     users, auth, labs, wearables, symptoms, assessments, insights, protocols, metrics
 )
 from app.api.v1.health_data import router as health_data_router
 from app.api.v1.baselines import router as baselines_router
 from app.api.v1.coverage import router as coverage_router
+from app.api.v1.interventions import router as interventions_router
+from app.api.v1.protocols import router as protocols_router
+from app.api.v1.experiments import router as experiments_router
+from app.api.v1.adherence import router as adherence_router
+from app.api.v1.evaluations import router as evaluations_router
+from app.api.v1.loop import router as loop_router
+from app.api.v1.checkins import router as checkins_router
+from app.api.v1.graphs import router as graphs_router
+from app.api.v1 import safety
+from app.api.v1.interventions import router as interventions_router
+from app.api.v1.protocols import router as protocols_router
+from app.api.v1.health import router as health_router
+from app.api.v1.jobs import router as jobs_router
+from app.api.v1.inbox import router as inbox_router
+from app.api.v1.outbox import router as outbox_router
+from app.api.v1.summaries import router as summaries_router
+from app.api.v1.narratives import router as narratives_router
+from app.api.v1.auth_mode import auth_mode_router
+from app.api.v1.providers_whoop import router as whoop_router
+from app.api.v1.consent import router as consent_router
+from app.api.v1.drivers import router as drivers_router
+from app.api.v1.memory import router as memory_router
+from app.api.v1.explain import router as explain_router
+from app.api.v1.trust import router as trust_router
+from app.api.v1.personal_model import router as personal_model_router
+from app.api.v1.audit import router as audit_router
+from app.api.v1.system import router as system_router
+from app.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
 
-# Setup logging
-setup_logging(level=settings.LOG_LEVEL)
+# Setup logging (structured logging with request IDs)
+configure_logging()
+log = get_logger(__name__)
+
+# Also keep existing logger for compatibility
 logger = logging.getLogger(__name__)
 
 # Validate configuration on startup
@@ -43,10 +78,14 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database connection ready (migrations should be applied separately)")
     
+    # STEP L: start optional scheduler for dev/MVP (if ENABLE_SCHEDULER=true)
+    start_scheduler()
+    
     yield
     
     # Shutdown
     logger.info(f"Shutting down {settings.APP_NAME}...")
+    stop_scheduler()
 
 
 # Create FastAPI app
@@ -56,6 +95,10 @@ app = FastAPI(
     description="AI-powered functional health assessment and protocol generation",
     lifespan=lifespan,
 )
+
+# Observability middleware (request IDs + metrics)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(MetricsMiddleware)
 
 # CORS middleware - all configuration from Settings
 app.add_middleware(
@@ -79,11 +122,40 @@ app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearable
 app.include_router(symptoms.router, prefix="/api/v1/symptoms", tags=["symptoms"])
 app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
 app.include_router(insights.router, prefix="/api/v1/insights")
-app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
+# protocols.router is replaced by protocols_router (new implementation)
+# app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
 app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
 app.include_router(health_data_router, prefix="/api/v1", tags=["health-data"])
 app.include_router(baselines_router, prefix="/api/v1", tags=["baselines"])
 app.include_router(coverage_router, prefix="/api/v1", tags=["coverage"])
+app.include_router(interventions_router)
+app.include_router(protocols_router)
+app.include_router(experiments_router)
+app.include_router(adherence_router)
+app.include_router(evaluations_router)
+app.include_router(loop_router)
+app.include_router(checkins_router)
+app.include_router(graphs_router)
+app.include_router(safety.router)
+app.include_router(health_router)
+app.include_router(jobs_router)
+app.include_router(inbox_router)
+app.include_router(outbox_router)
+app.include_router(summaries_router)
+app.include_router(narratives_router)
+app.include_router(auth_mode_router)
+app.include_router(whoop_router)
+app.include_router(consent_router)
+app.include_router(drivers_router)
+app.include_router(memory_router)
+app.include_router(explain_router)
+app.include_router(trust_router)
+app.include_router(personal_model_router)
+app.include_router(audit_router)
+app.include_router(system_router)
+
+# Observability
+app.include_router(metrics_system_router)
 
 # Root endpoint
 @app.get("/")

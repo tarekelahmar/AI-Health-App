@@ -1,0 +1,230 @@
+{
+  "user_id": 999,
+  "description": "Golden user with sleep-focused data patterns for regression testing",
+  "health_data_points": [
+    {
+      "metric_type": "sleep_duration",
+      "value": 7.5,
+      "unit": "hours",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 7.8,
+      "unit": "hours",
+      "timestamp": "2024-01-02T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 7.2,
+      "unit": "hours",
+      "timestamp": "2024-01-03T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 8.0,
+      "unit": "hours",
+      "timestamp": "2024-01-04T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 7.6,
+      "unit": "hours",
+      "timestamp": "2024-01-05T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 6.5,
+      "unit": "hours",
+      "timestamp": "2024-01-06T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 6.8,
+      "unit": "hours",
+      "timestamp": "2024-01-07T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 6.2,
+      "unit": "hours",
+      "timestamp": "2024-01-08T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 6.0,
+      "unit": "hours",
+      "timestamp": "2024-01-09T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_duration",
+      "value": 5.8,
+      "unit": "hours",
+      "timestamp": "2024-01-10T00:00:00Z",
+      "source": "wearable"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 7.0,
+      "unit": "score",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 7.5,
+      "unit": "score",
+      "timestamp": "2024-01-02T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 6.5,
+      "unit": "score",
+      "timestamp": "2024-01-03T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 6.0,
+      "unit": "score",
+      "timestamp": "2024-01-06T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 5.5,
+      "unit": "score",
+      "timestamp": "2024-01-07T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 5.0,
+      "unit": "score",
+      "timestamp": "2024-01-08T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 4.5,
+      "unit": "score",
+      "timestamp": "2024-01-09T00:00:00Z",
+      "source": "subjective"
+    },
+    {
+      "metric_type": "sleep_quality",
+      "value": 4.0,
+      "unit": "score",
+      "timestamp": "2024-01-10T00:00:00Z",
+      "source": "subjective"
+    }
+  ],
+  "daily_checkins": [
+    {
+      "checkin_date": "2024-01-01",
+      "sleep_quality": 7.0,
+      "energy": 7.0,
+      "mood": 7.0,
+      "stress": 3.0,
+      "behaviors_json": {
+        "caffeine_pm": false,
+        "alcohol": false,
+        "exercise": true,
+        "meditation": false
+      }
+    },
+    {
+      "checkin_date": "2024-01-06",
+      "sleep_quality": 6.0,
+      "energy": 5.0,
+      "mood": 6.0,
+      "stress": 5.0,
+      "behaviors_json": {
+        "caffeine_pm": true,
+        "alcohol": true,
+        "exercise": false,
+        "meditation": false
+      }
+    },
+    {
+      "checkin_date": "2024-01-10",
+      "sleep_quality": 4.0,
+      "energy": 4.0,
+      "mood": 5.0,
+      "stress": 7.0,
+      "behaviors_json": {
+        "caffeine_pm": true,
+        "alcohol": false,
+        "exercise": false,
+        "meditation": false
+      }
+    }
+  ],
+  "interventions": [
+    {
+      "key": "melatonin",
+      "name": "Melatonin 3mg",
+      "category": "supplement",
+      "dosage": "3mg",
+      "schedule": "30min before bed",
+      "start_date": "2024-01-05"
+    }
+  ],
+  "adherence_events": [
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-05T22:00:00Z",
+      "taken": true
+    },
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-06T22:00:00Z",
+      "taken": true
+    },
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-07T22:00:00Z",
+      "taken": false
+    },
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-08T22:00:00Z",
+      "taken": true
+    },
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-09T22:00:00Z",
+      "taken": true
+    },
+    {
+      "intervention_key": "melatonin",
+      "timestamp": "2024-01-10T22:00:00Z",
+      "taken": true
+    }
+  ],
+  "expected_insights": {
+    "min_count": 1,
+    "must_include_types": ["change"],
+    "must_include_metrics": ["sleep_duration"],
+    "confidence_tolerance": 0.1
+  },
+  "expected_safety_warnings": {
+    "should_trigger": false,
+    "if_triggered_reasons": []
+  },
+  "expected_narrative": {
+    "should_acknowledge_decline": true,
+    "should_mention_intervention": true
+  }
+}
+

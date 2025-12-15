@@ -35,6 +35,9 @@ requests==2.31.0
 # Environment & Configuration
 python-dotenv==1.0.0
 
+# Job Scheduling (STEP L)
+apscheduler==3.10.4
+
 # Testing (included for CI/CD)
 pytest==7.4.3
 pytest-cov==4.1.0

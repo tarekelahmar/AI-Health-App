@@ -7,13 +7,21 @@ from app.api.schemas.health_data import HealthDataBatchIn, HealthDataBatchOut
 from app.domain.metric_registry import get_metric_spec
 from app.domain.models.health_data_point import HealthDataPoint
 from app.engine.baseline_service import recompute_baseline
-from app.api.public_router import public_router
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
-router = public_router(prefix="", tags=["health-data"])
+router = make_v1_router(prefix="/api/v1/health-data", tags=["health-data"])
 
 
 @router.post("/batch", response_model=HealthDataBatchOut)
-def ingest_health_data_batch(payload: HealthDataBatchIn, db: Session = Depends(get_db)):
+def ingest_health_data_batch(
+    payload: HealthDataBatchIn,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
+    # Override payload.user_id with authenticated user_id (prevent spoofing)
+    payload.user_id = user_id
+    
     inserted = 0
     rejected = 0
     reasons: list[str] = []
@@ -61,4 +69,3 @@ def ingest_health_data_batch(payload: HealthDataBatchIn, db: Session = Depends(g
         recompute_baseline(db=db, user_id=payload.user_id, metric_key=mk, window_days=30)
 
     return HealthDataBatchOut(inserted=inserted, rejected=rejected, rejected_reasons=reasons)
-

@@ -1,26 +1,26 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy.sql import func
 from app.core.database import Base
-
 
 class Intervention(Base):
     __tablename__ = "interventions"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
 
-    hypothesis_factor = Column(String, nullable=False)  # e.g. magnesium_serum
-    intervention_type = Column(String, nullable=False)  # supplement / behaviour
-    name = Column(String, nullable=False)               # "Magnesium glycinate"
+    key = Column(String, index=True, nullable=False)  # e.g. "magnesium_glycinate"
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=True)          # supplement/lifestyle/etc
+    dosage = Column(String, nullable=True)            # free-text MVP
+    schedule = Column(String, nullable=True)          # free-text MVP
+    notes = Column(Text, nullable=True)
 
-    dose = Column(String, nullable=True)                # "200"
-    unit = Column(String, nullable=True)                 # "mg"
-    schedule = Column(String, nullable=True)            # "nightly"
+    # --- Safety metadata persisted (K3) ---
+    # Store the evaluated safety decision so protocol/loop can reuse it.
+    safety_risk_level = Column(String, nullable=True)      # low/moderate/high
+    safety_evidence_grade = Column(String, nullable=True)  # A/B/C/D
+    safety_boundary = Column(String, nullable=True)        # informational/lifestyle/experiment
+    safety_issues_json = Column(Text, nullable=True)       # JSON string of issues
+    safety_notes = Column(Text, nullable=True)             # short notes / disclaimer text
 
-    start_date = Column(DateTime, nullable=False)
-    end_date = Column(DateTime, nullable=True)
-
-    confidence_before = Column(Float, nullable=False)   # belief before test
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

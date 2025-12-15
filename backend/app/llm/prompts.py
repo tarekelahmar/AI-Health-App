@@ -12,13 +12,21 @@ Rules:
 - Do not suggest treatments
 - Always mention uncertainty
 - Use plain, non-alarming language
+- Adhere to claim policy for evidence grade {evidence_grade}
+
+Claim Policy for Grade {evidence_grade}:
+Allowed verbs: {allowed_verbs}
+Disallowed verbs: {disallowed_verbs}
+Uncertainty required: {uncertainty_required}
+
+Example phrases: {example_phrases}
 
 Insight:
 
 {insight_json}
 
 Respond ONLY in valid JSON with keys:
-- explanation
+- explanation (must use only allowed verbs, must mention uncertainty if required)
 - uncertainty
 - suggested_next_step
 """

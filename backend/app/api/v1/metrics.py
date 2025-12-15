@@ -1,5 +1,5 @@
 """Metrics endpoints"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -7,21 +7,23 @@ from app.core.database import get_db
 from app.domain.models.health_data_point import HealthDataPoint
 from app.domain.models.baseline import Baseline as BaselineModel
 from app.api.schemas.metrics import MetricSeriesResponse, MetricPoint, MetricBaseline
-from app.api.public_router import public_router
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
-router = public_router(prefix="", tags=["metrics"])
+router = make_v1_router(prefix="/api/v1/metrics", tags=["metrics"])
 
 
 @router.get("/series", response_model=MetricSeriesResponse)
 def get_metric_series(
-    user_id: int,
-    metric_key: str,
+    user_id: int = Depends(get_request_user_id),
+    metric_key: str = Query(...),
     db: Session = Depends(get_db),
 ):
     """
     Get metric series data with baseline.
     Returns points and baseline for visualization.
     """
+    
     # Get data points (using metric_type - the Python attribute mapped to data_type column)
     points = (
         db.query(HealthDataPoint)
@@ -70,4 +72,3 @@ def get_metric_series(
         points=metric_points,
         baseline=baseline,
     )
-

@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Optional, Dict, Literal, Union
 from pydantic import BaseModel, Field
 
+from app.api.schemas.confidence import InsightUncertaintyUX
+
 InsightStatus = Literal["detected", "evaluated", "suggested"]
 
 

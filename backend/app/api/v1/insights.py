@@ -1,27 +1,20 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
 from typing import List
-from fastapi import Depends
 
 from app.api.schemas.insight import InsightResponse
 from app.api.transformers.insight_transformer import transform_insight
 from app.domain.repositories.insight_repository import InsightRepository
 from app.engine.loop_runner import run_loop
 from app.core.database import get_db
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
-router = APIRouter(
-    prefix="",
-    tags=["insights"],
-    dependencies=[]  # 🔥 HARD OVERRIDE — NO AUTH
-)
+router = make_v1_router(prefix="/api/v1/insights", tags=["insights"])
 
-@router.get(
-    "/feed",
-    response_model=dict,
-    dependencies=[]  # 🔥 CRITICAL: overrides any global auth
-)
+@router.get("/feed", response_model=dict)
 def get_insight_feed(
-    user_id: int = Query(...),
+    user_id: int = Depends(get_request_user_id),
     limit: int = Query(50),
     db: Session = Depends(get_db)
 ):
@@ -32,13 +25,9 @@ def get_insight_feed(
         "items": [transform_insight(i) for i in insights],
     }
 
-@router.post(
-    "/run",
-    response_model=dict,
-    dependencies=[]  # 🔥 NO AUTH
-)
+@router.post("/run", response_model=dict)
 def run_insights(
-    user_id: int = Query(...),
+    user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db)
 ):
     try:

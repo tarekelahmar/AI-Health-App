@@ -1,6 +1,7 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from app.domain.models.insight import Insight
+from app.core.invariants import validate_insight_invariants, InvariantViolation
 
 
 class InsightRepository:
@@ -19,6 +20,20 @@ class InsightRepository:
         confidence_score: float,
         metadata_json: str = "",
     ) -> Insight:
+        # X1: Validate invariants before creation
+        try:
+            validate_insight_invariants(
+                user_id=user_id,
+                insight_type=insight_type,
+                title=title,
+                description=description,
+                confidence_score=confidence_score,
+                metadata_json=metadata_json,
+            )
+        except InvariantViolation as e:
+            # Hard-fail: skip object creation and surface safe fallback message
+            raise ValueError(f"Insight creation blocked: {e.message}")
+        
         insight = Insight(
             user_id=user_id,
             insight_type=insight_type,
