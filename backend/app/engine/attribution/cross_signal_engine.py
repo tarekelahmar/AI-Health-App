@@ -17,6 +17,7 @@ from app.domain.models.experiment import Experiment
 from app.domain.repositories.personal_driver_repository import PersonalDriverRepository
 from app.domain.driver_registry import DRIVER_REGISTRY, get_driver_spec, get_drivers_for_outcome
 from app.domain.metric_registry import METRICS
+from app.engine.attribution.guardrails import apply_attribution_guardrails
 
 logger = logging.getLogger(__name__)
 
@@ -312,11 +313,37 @@ class CrossSignalAttributionEngine:
         # Compute stability (consistency across rolling windows)
         stability = self._compute_stability(driver_values, outcome_values)
         
-        # Compute confidence
+        # Compute base confidence
         coverage = len([v for v in driver_values if v > 0]) / len(driver_values) if driver_values else 0.0
         effect_magnitude = min(abs(effect_size) / 2.0, 1.0)
-        confidence = (coverage * 0.3 + effect_magnitude * 0.4 + stability * 0.3)
-        confidence = max(0.0, min(1.0, confidence))
+        base_confidence = (coverage * 0.3 + effect_magnitude * 0.4 + stability * 0.3)
+        base_confidence = max(0.0, min(1.0, base_confidence))
+        
+        # SECURITY FIX (Risk #8): Apply guardrails to prevent false positives
+        # Estimate number of comparisons (drivers × outcomes × lags)
+        # This is approximate; in practice, we'd track this more precisely
+        n_comparisons = len(get_drivers_for_outcome(outcome_metric)) * (driver_spec.max_lag_days + 1)
+        
+        guardrail_result = apply_attribution_guardrails(
+            effect_size=effect_size,
+            confidence=base_confidence,
+            stability=stability,
+            variance_explained=variance_explained,
+            sample_size=len(driver_values),
+            n_comparisons=n_comparisons,
+            r_squared=r_squared,
+        )
+        
+        # Use adjusted confidence from guardrails
+        final_confidence = guardrail_result.adjusted_confidence if guardrail_result.adjusted_confidence is not None else base_confidence
+        
+        # SECURITY FIX: Skip if guardrails fail (don't create driver)
+        if not guardrail_result.passed:
+            logger.debug(
+                f"Attribution guardrails failed for user_id={user_id}, driver={driver_spec.driver_key}, "
+                f"outcome={outcome_metric}, reason={guardrail_result.reason}"
+            )
+            return None
         
         return PersonalDriver(
             user_id=user_id,
@@ -327,7 +354,7 @@ class CrossSignalAttributionEngine:
             effect_size=effect_size,
             direction=direction,
             variance_explained=variance_explained,
-            confidence=confidence,
+            confidence=final_confidence,  # Use guardrail-adjusted confidence
             stability=stability,
             sample_size=len(driver_values),
         )

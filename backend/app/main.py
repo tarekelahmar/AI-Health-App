@@ -74,6 +74,24 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     
+    # SECURITY FIX (Risk #9): Validate auth mode configuration at startup
+    from app.config.environment import get_env_mode, get_mode_config
+    from app.api.auth_mode import get_auth_mode
+    
+    env_mode = get_env_mode()
+    config = get_mode_config()
+    auth_mode = get_auth_mode()
+    
+    logger.info(f"Environment mode: {env_mode.value}")
+    logger.info(f"Auth mode: {auth_mode}")
+    logger.info(f"Safety strict: {config['safety_strict']}")
+    
+    # Fail hard if production is misconfigured
+    if env_mode.value == "production" and auth_mode != "private":
+        error_msg = f"CRITICAL: Production mode requires AUTH_MODE=private, but got {auth_mode}"
+        logger.critical(error_msg)
+        raise ValueError(error_msg)
+    
     # MVP-safe: create missing tables (e.g., baselines)
     init_db()
     logger.info("Database connection ready (migrations should be applied separately)")

@@ -63,6 +63,8 @@ def init_db():
     from app.domain.models.trust_score import TrustScore  # noqa: F401
     from app.domain.models.personal_health_model import PersonalHealthModel  # noqa: F401
     from app.domain.models.audit_event import AuditEvent  # noqa: F401
+    from app.domain.models.oauth_state import OAuthState  # noqa: F401
+    from app.domain.models.job_run import JobRun  # noqa: F401 SECURITY FIX (Risk #10)
     Base.metadata.create_all(bind=engine)
 
 

@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends
 
 from sqlalchemy.orm import Session
 
-from app.api.public_router import public_router
+from app.api.router_factory import make_v1_router
+from app.api.auth_mode import get_request_user_id
 
 from app.api.schemas.adherence import AdherenceLog, AdherenceOut
 
@@ -16,13 +17,20 @@ from app.domain.models.adherence_event import AdherenceEvent
 
 from app.domain.repositories.adherence_repository import AdherenceRepository
 
-router: APIRouter = public_router(prefix="/api/v1/adherence", tags=["adherence"])
+# SECURITY: Changed from public_router to make_v1_router - adherence contains PHI
+router: APIRouter = make_v1_router(prefix="/api/v1/adherence", tags=["adherence"])
 
 
 @router.post("/log", response_model=AdherenceOut)
-def log_adherence(payload: AdherenceLog, db: Session = Depends(get_db)):
+def log_adherence(
+    payload: AdherenceLog,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    # SECURITY: Override payload.user_id with authenticated user_id
     repo = AdherenceRepository(db)
     data = payload.model_dump()
+    data["user_id"] = user_id  # Use authenticated user_id, not payload.user_id
     if data.get("timestamp") is None:
         data["timestamp"] = datetime.utcnow()
     event = AdherenceEvent(**data)

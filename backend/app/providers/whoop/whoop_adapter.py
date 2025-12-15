@@ -22,12 +22,23 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_rfc3339(ts: str) -> datetime:
+    """
+    Parse RFC3339 timestamp from WHOOP API.
+    
+    SECURITY FIX (Risk #6): Returns timezone-aware datetime (UTC).
+    Caller should convert to UTC and remove tzinfo for database storage.
+    """
     # WHOOP returns Z timestamps; Python fromisoformat doesn't accept Z on 3.9.
     # Minimal safe parse.
     # Example: "2025-01-01T12:34:56Z"
     if ts.endswith("Z"):
         ts = ts[:-1] + "+00:00"
-    return datetime.fromisoformat(ts).replace(tzinfo=None)
+    dt = datetime.fromisoformat(ts)
+    # Ensure timezone-aware (assume UTC if not specified)
+    if dt.tzinfo is None:
+        from datetime import timezone
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class WhoopAdapter(ProviderAdapter):
@@ -136,12 +147,15 @@ class WhoopAdapter(ProviderAdapter):
 
             if duration_min is not None:
                 spec = get_metric_spec("sleep_duration")
+                # SECURITY FIX (Risk #6): Convert timestamp to UTC and remove tzinfo for storage
+                from datetime import timezone
+                ts_utc = ts.astimezone(timezone.utc).replace(tzinfo=None)
                 points.append(
                     NormalizedPoint(
                         metric_type="sleep_duration",
                         value=float(duration_min),
                         unit=spec.unit,
-                        timestamp=ts,
+                        timestamp=ts_utc,
                         source="whoop",
                         metadata={"whoop_sleep_id": rec.get("id")},
                     )
@@ -154,6 +168,9 @@ class WhoopAdapter(ProviderAdapter):
             if not ts_raw:
                 continue
             ts = _parse_rfc3339(ts_raw)
+            # SECURITY FIX (Risk #6): Convert timestamp to UTC and remove tzinfo for storage
+            from datetime import timezone
+            ts_utc = ts.astimezone(timezone.utc).replace(tzinfo=None)
 
             # WHOOP recovery typically includes:
             # - resting_heart_rate
@@ -169,19 +186,22 @@ class WhoopAdapter(ProviderAdapter):
                         metric_type="resting_hr",
                         value=float(rhr),
                         unit=spec.unit,
-                        timestamp=ts,
+                        timestamp=ts_utc,
                         source="whoop",
                         metadata={"whoop_recovery_id": rec.get("id")},
                     )
                 )
             if rmssd is not None:
                 spec = get_metric_spec("hrv_rmssd")
+                # SECURITY FIX (Risk #6): Convert HRV from milliseconds if needed
+                # WHOOP provides hrv_rmssd_milli, but our spec expects ms (same unit, different name)
+                # For now, assume WHOOP's "milli" is already in milliseconds
                 points.append(
                     NormalizedPoint(
                         metric_type="hrv_rmssd",
                         value=float(rmssd),
                         unit=spec.unit,
-                        timestamp=ts,
+                        timestamp=ts_utc,
                         source="whoop",
                         metadata={"whoop_recovery_id": rec.get("id")},
                     )

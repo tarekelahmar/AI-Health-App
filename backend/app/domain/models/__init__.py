@@ -30,6 +30,8 @@ from app.domain.models.explanation_edge import ExplanationEdge
 from app.domain.models.trust_score import TrustScore
 from app.domain.models.personal_health_model import PersonalHealthModel
 from app.domain.models.audit_event import AuditEvent
+from app.domain.models.oauth_state import OAuthState
+from app.domain.models.job_run import JobRun
 
 __all__ = [
     "User",
@@ -63,4 +65,6 @@ __all__ = [
     "TrustScore",
     "PersonalHealthModel",
     "AuditEvent",
+    "OAuthState",
+    "JobRun",
 ]

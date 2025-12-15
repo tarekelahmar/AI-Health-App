@@ -32,6 +32,8 @@ from .personal_health_model_repository import PersonalHealthModelRepository
 from .intervention_repository import InterventionRepository
 from .protocol_repository import ProtocolRepository
 from .audit_repository import AuditRepository
+from .oauth_state_repository import OAuthStateRepository
+from .job_run_repository import JobRunRepository
 
 __all__ = [
     "UserRepository",
@@ -64,5 +66,7 @@ __all__ = [
     "ExplanationRepository",
     "PersonalHealthModelRepository",
     "AuditRepository",
+    "OAuthStateRepository",
+    "JobRunRepository",
 ]
 

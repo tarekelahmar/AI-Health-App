@@ -17,6 +17,7 @@ from app.api.schemas.providers import (
     ProviderStatusResponse,
 )
 from app.domain.repositories.provider_token_repository import ProviderTokenRepository
+from app.domain.repositories.oauth_state_repository import OAuthStateRepository
 from app.providers.whoop.whoop_adapter import WhoopAdapter
 from app.providers.whoop.whoop_oauth import compute_expires_at
 from app.engine.providers.provider_sync_service import ProviderSyncService
@@ -44,11 +45,21 @@ def whoop_connect(
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
-    # MVP: state stored client-side; in production store state in DB with TTL.
+    # SECURITY: Store state server-side with TTL to prevent CSRF
     adapter = WhoopAdapter(db)
-    state = secrets.token_urlsafe(16)
+    state_token = secrets.token_urlsafe(32)  # Longer token for better security
+    
+    # Store state in database with 10-minute TTL
+    state_repo = OAuthStateRepository(db)
+    state_repo.create(
+        user_id=user_id,
+        provider="whoop",
+        state_token=state_token,
+        ttl_seconds=600,  # 10 minutes
+    )
+    
     try:
-        url = adapter.build_authorize_url(state=state)
+        url = adapter.build_authorize_url(state=state_token)
     except RuntimeError as e:
         # Safety: Clear error message when credentials are missing
         logger.error(f"WHOOP connect failed for user_id={user_id}: {e}")
@@ -66,6 +77,22 @@ def whoop_callback(
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
+    # SECURITY: Validate state token to prevent CSRF
+    if not state:
+        logger.error(f"WHOOP callback: Missing state parameter for user_id={user_id}")
+        raise HTTPException(status_code=400, detail="Missing state parameter")
+    
+    state_repo = OAuthStateRepository(db)
+    state_obj = state_repo.get_and_consume(
+        user_id=user_id,
+        provider="whoop",
+        state_token=state,
+    )
+    
+    if not state_obj:
+        logger.error(f"WHOOP callback: Invalid or expired state token for user_id={user_id}")
+        raise HTTPException(status_code=400, detail="Invalid or expired state token")
+    
     adapter = WhoopAdapter(db)
     repo = ProviderTokenRepository(db)
 

@@ -15,6 +15,7 @@ from app.domain.models.health_data_point import HealthDataPoint
 from app.domain.models.driver_finding import DriverFinding
 from app.domain.repositories.driver_finding_repository import DriverFindingRepository
 from app.domain.metric_registry import METRICS, get_metric_spec
+from app.engine.attribution.guardrails import apply_attribution_guardrails, filter_attributions_by_guardrails
 
 logger = logging.getLogger(__name__)
 
@@ -120,14 +121,34 @@ class DriverDiscoveryService:
                     if finding:
                         findings.append(finding)
         
-        # Sort by confidence * abs(effect_size)
-        findings.sort(key=lambda f: f.confidence * abs(f.effect_size), reverse=True)
+        # SECURITY FIX (Risk #8): Apply FDR correction across all findings
+        # Convert findings to dict format for guardrail filtering
+        findings_dicts = [
+            {
+                "effect_size": f.effect_size,
+                "confidence": f.confidence,
+                "stability": json.loads(f.details_json or "{}").get("stability", 0.5),
+                "variance_explained": json.loads(f.details_json or "{}").get("variance_explained", 0.0),
+                "sample_size": f.n_total_days,
+                "finding": f,
+            }
+            for f in findings
+        ]
         
-        # Upsert top findings
-        for finding in findings[:max_findings]:
+        # Filter using guardrails and FDR correction
+        filtered_dicts = filter_attributions_by_guardrails(findings_dicts, n_comparisons=len(findings_dicts))
+        
+        # Extract findings that passed guardrails
+        filtered_findings = [d["finding"] for d in filtered_dicts]
+        
+        # Sort by confidence * abs(effect_size)
+        filtered_findings.sort(key=lambda f: f.confidence * abs(f.effect_size), reverse=True)
+        
+        # Upsert top findings (only those that passed guardrails)
+        for finding in filtered_findings[:max_findings]:
             self.finding_repo.upsert_finding(finding)
         
-        return findings[:max_findings]
+        return filtered_findings[:max_findings]
     
     def _build_exposure_table(
         self,
@@ -370,12 +391,50 @@ class DriverDiscoveryService:
         else:
             direction = "worsens" if effect_size > 0 else "improves"
         
-        # Compute confidence
+        # Compute base confidence
         # Combine coverage, effect size magnitude, and sample size
         effect_magnitude = min(abs(effect_size) / 2.0, 1.0)  # Normalize to [0,1]
         sample_factor = min(n_exposed / 20.0, 1.0)  # More samples = higher confidence
-        confidence = (coverage * 0.4 + effect_magnitude * 0.4 + sample_factor * 0.2)
-        confidence = max(0.0, min(1.0, confidence))  # Clamp to [0,1]
+        base_confidence = (coverage * 0.4 + effect_magnitude * 0.4 + sample_factor * 0.2)
+        base_confidence = max(0.0, min(1.0, base_confidence))  # Clamp to [0,1]
+        
+        # SECURITY FIX (Risk #8): Apply guardrails to prevent false positives
+        # Compute variance explained (approximate from effect size)
+        # For Cohen's d, approximate R² ≈ d² / (d² + 4) (simplified)
+        variance_explained = (effect_size ** 2) / (effect_size ** 2 + 4) if abs(effect_size) > 0 else 0.0
+        
+        # Estimate stability (simplified - would need rolling windows for full stability)
+        # For MVP, use coverage as proxy for stability
+        stability = coverage
+        
+        # Estimate number of comparisons (exposures × metrics × lags)
+        # This is approximate; in practice, we'd track this more precisely
+        n_exposures = len(set(exposures[date].behaviors.keys() for date in exposures) | 
+                         set(exposures[date].interventions.keys() for date in exposures))
+        n_metrics = len(set(outcomes[date].metric_values.keys() for date in outcomes))
+        n_lags = len([0, 1, 2, 3])  # Default lags
+        n_comparisons = n_exposures * n_metrics * n_lags
+        
+        guardrail_result = apply_attribution_guardrails(
+            effect_size=effect_size,
+            confidence=base_confidence,
+            stability=stability,
+            variance_explained=variance_explained,
+            sample_size=n_total,
+            n_comparisons=n_comparisons,
+            r_squared=variance_explained,
+        )
+        
+        # Use adjusted confidence from guardrails
+        final_confidence = guardrail_result.adjusted_confidence if guardrail_result.adjusted_confidence is not None else base_confidence
+        
+        # SECURITY FIX: Skip if guardrails fail (don't create finding)
+        if not guardrail_result.passed:
+            logger.debug(
+                f"Driver discovery guardrails failed for user_id={user_id}, exposure={exposure_key}, "
+                f"metric={metric_key}, reason={guardrail_result.reason}"
+            )
+            return None
         
         # Build details JSON
         details = {
@@ -387,12 +446,19 @@ class DriverDiscoveryService:
             "n_exposed": n_exposed,
             "n_unexposed": n_unexposed,
             "higher_is_better": higher_is_better,
+            "variance_explained": variance_explained,
+            "stability": stability,
+            "guardrail_passed": guardrail_result.passed,
+            "guardrail_label": guardrail_result.label,
             "thresholds": {
                 "min_exposed_days": self.MIN_EXPOSED_DAYS,
                 "min_total_days": self.MIN_TOTAL_DAYS,
                 "min_coverage": self.MIN_COVERAGE,
             },
         }
+        
+        if guardrail_result.reason:
+            details["guardrail_reason"] = guardrail_result.reason
         
         finding = DriverFinding(
             user_id=user_id,
@@ -402,7 +468,7 @@ class DriverDiscoveryService:
             lag_days=lag_days,
             direction=direction,
             effect_size=effect_size,
-            confidence=confidence,
+            confidence=final_confidence,  # Use guardrail-adjusted confidence
             coverage=coverage,
             n_exposure_days=n_exposed,
             n_total_days=n_total,

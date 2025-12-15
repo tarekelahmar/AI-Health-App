@@ -27,6 +27,7 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.1.1
 slowapi==0.1.9
+cryptography>=41.0.0  # SECURITY FIX (Risk #3): Required for token encryption
 
 # HTTP Client
 httpx==0.25.2

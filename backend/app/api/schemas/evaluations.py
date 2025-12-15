@@ -25,6 +25,10 @@ class EvaluationResultResponse(BaseModel):
 
     coverage: float = Field(ge=0.0, le=1.0)
     adherence_rate: float = Field(ge=0.0, le=1.0)
+    
+    # SECURITY FIX (Risk #7): Confidence and adherence evidence
+    confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence score (0-1) based on effect size, coverage, and adherence")
+    has_adherence_evidence: bool = Field(default=False, description="Whether adherence events were logged for this evaluation")
 
     verdict: Verdict
     created_at: datetime

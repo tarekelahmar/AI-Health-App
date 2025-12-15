@@ -86,6 +86,62 @@ class ProviderSyncService:
                     errors.append({"metric_type": p.metric_type, "reason": "invariant_violation", "error": str(e)})
                     continue
                 
+                # SECURITY FIX (Risk #6): Validate and convert units
+                from app.domain.unit_conversion import (
+                    validate_unit_compatibility,
+                    convert_unit,
+                    UnitConversionError,
+                )
+                from datetime import timezone
+                
+                provided_unit = p.unit or spec.unit
+                canonical_unit = spec.unit
+                
+                # Validate unit compatibility
+                is_compatible, error_msg, _ = validate_unit_compatibility(
+                    provided_unit=provided_unit,
+                    expected_unit=canonical_unit,
+                    metric_key=p.metric_type,
+                )
+                
+                if not is_compatible:
+                    rejected += 1
+                    errors.append({
+                        "metric_type": p.metric_type,
+                        "reason": "unit_mismatch",
+                        "error": error_msg or f"Unit '{provided_unit}' incompatible with '{canonical_unit}'"
+                    })
+                    continue
+                
+                # Convert value if units differ
+                value = p.value
+                if provided_unit.lower() != canonical_unit.lower():
+                    try:
+                        value = convert_unit(
+                            value=p.value,
+                            from_unit=provided_unit,
+                            to_unit=canonical_unit,
+                        )
+                    except UnitConversionError as e:
+                        rejected += 1
+                        errors.append({
+                            "metric_type": p.metric_type,
+                            "reason": "unit_conversion_failed",
+                            "error": str(e)
+                        })
+                        continue
+                
+                # SECURITY FIX (Risk #6): Ensure timestamp is UTC and timezone-naive for storage
+                timestamp = p.timestamp
+                if timestamp.tzinfo is None:
+                    # Assume UTC if timezone-naive
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                else:
+                    # Convert to UTC if timezone-aware
+                    timestamp = timestamp.astimezone(timezone.utc)
+                # Remove timezone for database storage
+                timestamp = timestamp.replace(tzinfo=None)
+                
                 # STEP R: Quality gates (hard stops)
                 should_reject, reject_reason = quality_service.should_reject_point(
                     point=p,
@@ -99,7 +155,7 @@ class ProviderSyncService:
                     continue
                 
                 # Add timestamp to tracking
-                existing_timestamps[p.metric_type].append(p.timestamp)
+                existing_timestamps[p.metric_type].append(timestamp)
                 
                 # STEP R: Create provenance record
                 provenance = DataProvenance(
@@ -124,9 +180,9 @@ class ProviderSyncService:
                     {
                         "user_id": user_id,
                         "data_type": p.metric_type,
-                        "value": float(p.value),
-                        "unit": p.unit,
-                        "timestamp": p.timestamp,
+                        "value": float(value),  # Use converted value
+                        "unit": canonical_unit,  # Always store canonical unit
+                        "timestamp": timestamp,  # Use timezone-safe timestamp
                         "source": p.source,
                         "data_provenance_id": provenance.id,
                         "quality_score": quality_score.to_dict(),

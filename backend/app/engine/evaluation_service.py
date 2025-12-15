@@ -273,6 +273,69 @@ def evaluate_experiment(
         verdict = "insufficient_data"
         reasons.append("not_enough_points")
 
+    # SECURITY FIX (Risk #7): Require adherence evidence for positive verdicts
+    # Compute uncertainty bands (confidence intervals)
+    from math import sqrt
+    
+    # Try to use scipy for confidence intervals, fallback to simple approximation
+    try:
+        from scipy import stats as scipy_stats
+        HAS_SCIPY = True
+    except ImportError:
+        HAS_SCIPY = False
+        # Fallback: use t-distribution approximation (z-score for large n)
+        def _t_ppf(confidence, df):
+            # Simple approximation: for df >= 30, use z=1.96 for 95% CI
+            if df >= 30:
+                return 1.96
+            # For smaller df, use conservative approximation
+            return 2.0  # Conservative fallback
+        scipy_stats = None  # type: ignore
+    
+    # Calculate 95% confidence intervals for baseline and intervention means
+    baseline_ci_lower = baseline_ci_upper = pre_stats.mean
+    intervention_ci_lower = intervention_ci_upper = post_stats.mean
+    
+    if pre_stats.n >= 2 and pre_stats.std > 0:
+        try:
+            if HAS_SCIPY:
+                t_crit = scipy_stats.t.ppf(0.975, pre_stats.n - 1)  # 95% CI
+            else:
+                t_crit = _t_ppf(0.975, pre_stats.n - 1)
+            se = pre_stats.std / sqrt(pre_stats.n)
+            baseline_ci_lower = pre_stats.mean - t_crit * se
+            baseline_ci_upper = pre_stats.mean + t_crit * se
+        except Exception:
+            pass  # Fallback to mean if CI calculation fails
+    
+    if post_stats.n >= 2 and post_stats.std > 0:
+        try:
+            if HAS_SCIPY:
+                t_crit = scipy_stats.t.ppf(0.975, post_stats.n - 1)  # 95% CI
+            else:
+                t_crit = _t_ppf(0.975, post_stats.n - 1)
+            se = post_stats.std / sqrt(post_stats.n)
+            intervention_ci_lower = post_stats.mean - t_crit * se
+            intervention_ci_upper = post_stats.mean + t_crit * se
+        except Exception:
+            pass  # Fallback to mean if CI calculation fails
+    
+    # Compute confidence score (0-1) based on effect size, coverage, and adherence
+    confidence_score = 0.0
+    if pre_stats.n >= min_points and post_stats.n >= min_points:
+        # Base confidence from effect size
+        abs_d = abs(d)
+        effect_confidence = min(1.0, abs_d / 0.80)  # Normalize to 0-1, with 0.8+ = 1.0
+        
+        # Coverage penalty (low coverage reduces confidence)
+        coverage_penalty = min(pre_stats.coverage, post_stats.coverage)
+        
+        # Adherence requirement (SECURITY FIX: no adherence = zero confidence for positive verdicts)
+        adherence_confidence = 1.0 if adherence_rate > 0 else 0.0
+        
+        # Combined confidence
+        confidence_score = effect_confidence * coverage_penalty * adherence_confidence
+    
     # If we have enough data, decide helpful/not_helpful/unclear
     if verdict != "insufficient_data":
         # effect magnitude tiers
@@ -284,21 +347,42 @@ def evaluate_experiment(
         actual_dir = "up" if delta > 0 else "down" if delta < 0 else "flat"
         direction_matches = (expected_dir is None) or (actual_dir == expected_dir)
 
+        # SECURITY FIX (Risk #7): Require adherence evidence for "helpful" verdicts
+        # Also require minimum confidence
+        min_confidence_for_helpful = 0.5  # Minimum confidence threshold
+        has_adherence_evidence = adherence_rate > 0.0
+        
         if meaningful and direction_matches:
-            verdict = "helpful" if strong else "helpful"
-            reasons.append("effect_size_meaningful")
-            if expected_dir is not None:
-                reasons.append("direction_matches_expected")
+            # SECURITY FIX: Cannot be "helpful" without adherence evidence
+            if not has_adherence_evidence:
+                verdict = "unclear"
+                reasons.append("effect_size_meaningful_but_no_adherence_evidence")
+                reasons.append("cannot_confirm_intervention_was_followed")
+            elif confidence_score < min_confidence_for_helpful:
+                verdict = "unclear"
+                reasons.append("effect_size_meaningful_but_low_confidence")
+                reasons.append(f"confidence_score_below_threshold_{confidence_score:.2f}")
+            else:
+                verdict = "helpful" if strong else "helpful"
+                reasons.append("effect_size_meaningful")
+                if expected_dir is not None:
+                    reasons.append("direction_matches_expected")
+                if has_adherence_evidence:
+                    reasons.append(f"adherence_evidence_present_{adherence_rate*100:.0f}%")
         elif meaningful and not direction_matches:
             verdict = "not_helpful"
             reasons.append("effect_size_meaningful_but_wrong_direction")
         else:
             verdict = "unclear"
             reasons.append("effect_too_small_or_noisy")
-
-        # adherence note (doesn't override, but recorded)
+        
+        # SECURITY FIX: Always record adherence status prominently
         if adherence_rate == 0.0:
             reasons.append("no_adherence_events_logged")
+            reasons.append("adherence_unknown_cannot_confirm_effectiveness")
+        elif adherence_rate < 0.5:
+            reasons.append(f"low_adherence_rate_{adherence_rate*100:.0f}%")
+            reasons.append("low_adherence_reduces_confidence_in_results")
 
     details: Dict[str, Any] = {
         "metric_key": metric_key,
@@ -306,31 +390,63 @@ def evaluate_experiment(
         "intervention_days": intervention_days,
         "baseline_window": {"start": baseline_start.isoformat(), "end": baseline_end.isoformat()},
         "intervention_window": {"start": start.isoformat(), "end": intervention_end.isoformat()},
-        "pre": {"n": pre_stats.n, "coverage": pre_stats.coverage, "mean": pre_stats.mean, "std": pre_stats.std},
-        "post": {"n": post_stats.n, "coverage": post_stats.coverage, "mean": post_stats.mean, "std": post_stats.std},
+        "pre": {
+            "n": pre_stats.n,
+            "coverage": pre_stats.coverage,
+            "mean": pre_stats.mean,
+            "std": pre_stats.std,
+            "ci_lower": baseline_ci_lower,  # SECURITY FIX (Risk #7): Uncertainty bands
+            "ci_upper": baseline_ci_upper,
+        },
+        "post": {
+            "n": post_stats.n,
+            "coverage": post_stats.coverage,
+            "mean": post_stats.mean,
+            "std": post_stats.std,
+            "ci_lower": intervention_ci_lower,  # SECURITY FIX (Risk #7): Uncertainty bands
+            "ci_upper": intervention_ci_upper,
+        },
         "delta": delta,
         "percent_change": pct_change,
         "effect_size_d": d,
         "expected_direction": expected_dir,
         "reasons": reasons,
         "adherence_rate": adherence_rate,
+        "confidence_score": confidence_score,  # SECURITY FIX (Risk #7): Confidence score
+        "has_adherence_evidence": adherence_rate > 0.0,  # SECURITY FIX (Risk #7): Explicit adherence flag
     }
 
     # Generate summary text
+    # SECURITY FIX (Risk #7): Prominently label confidence and adherence status
     summary_parts = [f"Metric: {metric_key}"]
+    
+    # Add confidence label prominently
+    if confidence_score < 0.5:
+        summary_parts.append(f"[LOW CONFIDENCE: {confidence_score*100:.0f}%]")
+    elif confidence_score < 0.7:
+        summary_parts.append(f"[MODERATE CONFIDENCE: {confidence_score*100:.0f}%]")
+    else:
+        summary_parts.append(f"[HIGH CONFIDENCE: {confidence_score*100:.0f}%]")
+    
     if verdict == "helpful":
         summary_parts.append(f"Intervention showed {abs(pct_change):.1f}% change in expected direction (effect size: {d:.2f})")
     elif verdict == "not_helpful":
         summary_parts.append(f"Intervention showed {abs(pct_change):.1f}% change in wrong direction (effect size: {d:.2f})")
     elif verdict == "unclear":
-        summary_parts.append(f"Effect size too small or noisy (effect size: {d:.2f})")
+        if "no_adherence_evidence" in reasons or "adherence_unknown" in reasons:
+            summary_parts.append(f"Effect size meaningful ({d:.2f}) but cannot confirm intervention was followed")
+        else:
+            summary_parts.append(f"Effect size too small or noisy (effect size: {d:.2f})")
     else:
         summary_parts.append("Insufficient data for evaluation")
     
+    # SECURITY FIX (Risk #7): Prominently display adherence status
     if adherence_rate > 0:
         summary_parts.append(f"Adherence: {adherence_rate*100:.0f}%")
+        if adherence_rate < 0.5:
+            summary_parts.append("[WARNING: Low adherence may affect results]")
     else:
-        summary_parts.append("No adherence events logged")
+        summary_parts.append("[WARNING: No adherence events logged - cannot confirm intervention was followed]")
     
     summary = ". ".join(summary_parts)
 

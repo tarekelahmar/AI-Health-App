@@ -11,7 +11,7 @@ from app.scheduler.jobs import (
     job_generate_daily_inbox_items,
     job_dispatch_notifications,
     job_generate_daily_narratives,
-    job_sync_whoop_data,
+    # SECURITY FIX: Removed broken job_sync_whoop_data import
     job_sync_whoop_for_all_users,
     job_generate_driver_findings,
     job_recompute_personal_drivers,
@@ -96,15 +96,8 @@ def configure_jobs(s: BackgroundScheduler) -> None:
         coalesce=True,
     )
 
-    # WHOOP data sync (every 6 hours)
-    s.add_job(
-        job_sync_whoop_data,
-        CronTrigger(hour="*/6"),
-        id="sync_whoop_data",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
+    # SECURITY FIX: Removed broken job_sync_whoop_data job registration
+    # Use job_sync_whoop_for_all_users instead (uses ProviderSyncService correctly)
 
     # WHOOP sync for all users (daily at 01:30 UTC, before baselines at 02:00)
     s.add_job(

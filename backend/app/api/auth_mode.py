@@ -6,6 +6,9 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
+# SECURITY FIX (Risk #9): Single source of truth for auth mode
+from app.config.environment import get_mode_config
+
 # IMPORTANT:
 # We do NOT import get_current_user directly here because many projects
 # have it as "hard-required" (auto_error=True). We implement an optional
@@ -20,11 +23,20 @@ oauth2_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error
 
 def get_auth_mode() -> str:
     """
-    AUTH_MODE:
-      - "public"  -> no auth required (MVP)
-      - "private" -> auth required (production-ish)
+    SECURITY FIX (Risk #9): Single source of truth for auth mode.
+    Uses environment mode config, which enforces:
+    - dev: can be public or private (from AUTH_MODE env var)
+    - staging: always private
+    - production: always private
+    
+    Falls back to AUTH_MODE env var if environment config not available.
     """
-    return os.getenv("AUTH_MODE", "public").strip().lower()
+    try:
+        config = get_mode_config()
+        return config["auth_mode"]
+    except Exception:
+        # Fallback to direct env var read (for backward compatibility)
+        return os.getenv("AUTH_MODE", "public").strip().lower()
 
 
 def is_private_mode() -> bool:

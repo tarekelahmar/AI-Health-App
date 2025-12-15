@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.api.public_router import public_router
+from app.api.router_factory import make_v1_router
+from app.api.auth_mode import get_request_user_id
 from app.api.schemas.graphs import DriversResponse, SnapshotResponse, GraphDriverEdge
 from app.domain.repositories.causal_graph_repository import CausalGraphRepository
 from app.domain.repositories.experiment_repository import ExperimentRepository
@@ -16,12 +17,13 @@ from app.engine.attribution.interaction_effects import InteractionAttributionEng
 from app.engine.graphs.driver_graph_builder import DriverGraphBuilder
 from app.engine.guardrails import prune_driver_edges
 
-router = public_router(prefix="/api/v1/graphs", tags=["graphs"])
+# SECURITY: Changed from public_router to make_v1_router - graphs contain PHI
+router = make_v1_router(prefix="/api/v1/graphs", tags=["graphs"])
 
 
 @router.get("/drivers", response_model=DriversResponse)
 def get_drivers(
-    user_id: int = Query(...),
+    user_id: int = Depends(get_request_user_id),
     target_metric: str = Query(..., alias="target_metric"),
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
@@ -54,7 +56,7 @@ def get_drivers(
 
 @router.post("/compute", response_model=DriversResponse)
 def compute_drivers(
-    user_id: int = Query(...),
+    user_id: int = Depends(get_request_user_id),
     target_metric: str = Query(..., alias="target_metric"),
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
@@ -122,7 +124,7 @@ def compute_drivers(
 
 @router.get("/snapshot", response_model=SnapshotResponse)
 def get_snapshot(
-    user_id: int = Query(...),
+    user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
     graph_repo = CausalGraphRepository(db)

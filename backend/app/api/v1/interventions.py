@@ -5,15 +5,22 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.api.schemas.interventions import InterventionCreate, InterventionResponse
 from app.domain.repositories.intervention_repository import InterventionRepository
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
-router = APIRouter(prefix="/api/v1/interventions", tags=["interventions"], dependencies=[])
+router = make_v1_router(prefix="/api/v1/interventions", tags=["interventions"])
 
 @router.post("", response_model=InterventionResponse)
-def create_intervention(payload: InterventionCreate, db: Session = Depends(get_db)):
+def create_intervention(
+    payload: InterventionCreate,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    # SECURITY: Override payload.user_id with authenticated user_id
     repo = InterventionRepository(db)
     try:
         row = repo.create_with_safety(
-            user_id=payload.user_id,
+            user_id=user_id,  # Use authenticated user_id, not payload.user_id
             key=payload.key,
             name=payload.name,
             category=payload.category,
@@ -48,7 +55,10 @@ def create_intervention(payload: InterventionCreate, db: Session = Depends(get_d
     )
 
 @router.get("", response_model=list[InterventionResponse])
-def list_interventions(user_id: int, db: Session = Depends(get_db)):
+def list_interventions(
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
     repo = InterventionRepository(db)
     rows = repo.list_by_user(user_id=user_id)
     out: list[InterventionResponse] = []

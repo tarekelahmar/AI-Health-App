@@ -1,4 +1,5 @@
 import json
+import logging
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -6,6 +7,8 @@ from app.domain.metric_registry import METRICS
 from app.domain.metric_policies import get_metric_policy
 from app.domain.models.baseline import Baseline
 from app.engine.signal_builder import fetch_recent_values
+
+logger = logging.getLogger(__name__)
 # Import apply_guardrails - need to handle the guardrails.py file vs guardrails/ package conflict
 # Import directly from the file using importlib
 import importlib.util
@@ -77,7 +80,7 @@ def run_loop(db: Session, user_id: int) -> dict:
             # Skip metrics without policies
             continue
 
-        # Fetch baseline (must exist; if not, skip)
+        # SECURITY FIX (Risk #5): Explicit baseline availability check
         try:
             baseline = (
                 db.query(Baseline)
@@ -85,9 +88,19 @@ def run_loop(db: Session, user_id: int) -> dict:
                 .one_or_none()
             )
             if baseline is None:
+                # Baseline not computed yet - skip this metric for now
+                # This is expected for new metrics/users
                 continue
-        except Exception:
-            # If baselines table doesn't exist, skip this metric
+        except Exception as e:
+            # SECURITY FIX: Log baseline retrieval failure instead of silently skipping
+            logger.warning(
+                "baseline_retrieval_failed",
+                extra={
+                    "user_id": user_id,
+                    "metric_key": metric_key,
+                    "error": str(e),
+                },
+            )
             continue
 
         # 1) Guardrails check (uses last 5 values from change window)
