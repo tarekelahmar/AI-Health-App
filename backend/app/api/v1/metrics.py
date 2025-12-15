@@ -63,7 +63,18 @@ def get_metric_series(
         else:
             # Return zero baseline if not found
             baseline = MetricBaseline(mean=0.0, std=0.0)
-    except Exception:
+    except Exception as e:
+        # WEEK 4: Log error instead of silently ignoring
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "baseline_query_failed",
+            extra={
+                "user_id": user_id,
+                "metric_key": metric_key,
+                "error": str(e),
+            },
+        )
         # If baselines table doesn't exist, return zero baseline
         baseline = MetricBaseline(mean=0.0, std=0.0)
     

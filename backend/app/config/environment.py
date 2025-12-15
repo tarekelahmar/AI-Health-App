@@ -81,6 +81,9 @@ def get_mode_config() -> Dict[str, Any]:
             "safety_strict": False,
             "logging_level": "DEBUG",
             "enable_llm": os.getenv("ENABLE_LLM_TRANSLATION", "false").lower() == "true",
+            # WEEK 3: Disable prescriptive/diagnostic features by default
+            "enable_rag": os.getenv("ENABLE_RAG_ENGINE", "false").lower() == "true",
+            "enable_dysfunction_detection": os.getenv("ENABLE_DYSFUNCTION_DETECTION", "false").lower() == "true",
         },
         EnvironmentMode.STAGING: {
             "auth_mode": auth_mode,  # Always "private" due to enforcement above
@@ -88,6 +91,9 @@ def get_mode_config() -> Dict[str, Any]:
             "safety_strict": True,
             "logging_level": "INFO",
             "enable_llm": os.getenv("ENABLE_LLM_TRANSLATION", "true").lower() == "true",
+            # WEEK 3: Disable prescriptive features in staging/production
+            "enable_rag": False,  # Disabled - prescriptive/diagnostic
+            "enable_dysfunction_detection": False,  # Disabled - diagnostic framing
         },
         EnvironmentMode.PRODUCTION: {
             "auth_mode": auth_mode,  # Always "private" due to enforcement above
@@ -95,6 +101,9 @@ def get_mode_config() -> Dict[str, Any]:
             "safety_strict": True,
             "logging_level": "WARNING",  # Production should be quieter
             "enable_llm": os.getenv("ENABLE_LLM_TRANSLATION", "true").lower() == "true",
+            # WEEK 3: Disable prescriptive features in production
+            "enable_rag": False,  # Disabled - prescriptive/diagnostic
+            "enable_dysfunction_detection": False,  # Disabled - diagnostic framing
         },
     }
     

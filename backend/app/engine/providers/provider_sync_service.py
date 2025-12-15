@@ -32,7 +32,38 @@ class ProviderSyncService:
         STEP R: Includes provenance tracking and quality scoring.
         Safety: Never partially ingest data. All points are validated before any insertion.
         If any critical error occurs, no data is inserted.
+        
+        SECURITY FIX (Week 1): Enforces consent before ingestion.
         """
+        # WEEK 2: Check provider-scoped consent with revocation support
+        from app.domain.repositories.consent_repository import ConsentRepository
+        consent_repo = ConsentRepository(self.db)
+        
+        if not consent_repo.is_consent_valid(user_id=user_id, provider="whoop"):
+            logger.warning(f"WHOOP sync blocked for user_id={user_id}: consent not valid (missing, revoked, or provider-specific consent not granted)")
+            consent = consent_repo.get_latest(user_id)
+            if consent and consent.revoked_at:
+                return {
+                    "provider": "whoop",
+                    "inserted": 0,
+                    "rejected": 0,
+                    "errors": [{"reason": "consent_revoked", "message": f"User consent was revoked on {consent.revoked_at.isoformat()}"}]
+                }
+            elif consent and not consent.consents_to_whoop_ingestion:
+                return {
+                    "provider": "whoop",
+                    "inserted": 0,
+                    "rejected": 0,
+                    "errors": [{"reason": "provider_consent_not_granted", "message": "User has not consented to WHOOP data ingestion"}]
+                }
+            else:
+                return {
+                    "provider": "whoop",
+                    "inserted": 0,
+                    "rejected": 0,
+                    "errors": [{"reason": "consent_required", "message": "User has not consented to data analysis"}]
+                }
+        
         # Generate unique ingestion run ID
         ingestion_run_id = f"whoop_{user_id}_{datetime.utcnow().isoformat()}_{uuid.uuid4().hex[:8]}"
         ingestion_time = datetime.utcnow()

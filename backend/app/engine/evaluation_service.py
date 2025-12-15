@@ -473,5 +473,76 @@ def evaluate_experiment(
     db.add(ev)
     db.commit()
     db.refresh(ev)
+    
+    # WEEK 4: Create audit event for explainability
+    try:
+        from app.domain.repositories.audit_repository import AuditRepository
+        audit_repo = AuditRepository(db)
+        audit_repo.create(
+            user_id=user_id,
+            entity_type="evaluation",
+            entity_id=ev.id,
+            decision_type="created",
+            decision_reason=f"Evaluation completed: {verdict}",
+            source_metrics=[metric_key],
+            time_windows={
+                "baseline": {"start": baseline_start.isoformat(), "end": baseline_end.isoformat()},
+                "intervention": {"start": start.isoformat(), "end": intervention_end.isoformat()},
+            },
+            detectors_used=["evaluation_service"],
+            thresholds_crossed=[
+                {"threshold": "min_coverage", "value": min(pre_stats.coverage, post_stats.coverage), "threshold_value": min_coverage},
+                {"threshold": "min_points", "value": min(pre_stats.n, post_stats.n), "threshold_value": min_points},
+            ],
+            safety_checks_applied=[
+                {"check": "adherence_required", "result": "passed" if adherence_rate > 0 else "failed"},
+                {"check": "confidence_threshold", "result": "passed" if confidence_score >= 0.5 else "failed"},
+            ],
+            metadata={
+                "verdict": verdict,
+                "effect_size": d,
+                "adherence_rate": adherence_rate,
+                "confidence_score": confidence_score,
+            },
+        )
+        
+        # Create explanation edges
+        from app.domain.repositories.explanation_repository import ExplanationRepository
+        explanation_repo = ExplanationRepository(db)
+        
+        # Edge from experiment to evaluation
+        explanation_repo.create_edge(
+            target_type="evaluation",
+            target_id=ev.id,
+            source_type="experiment",
+            source_id=experiment_id,
+            contribution_weight=1.0,
+            description=f"Evaluation of experiment {experiment_id}",
+        )
+        
+        # Edge from baseline data to evaluation
+        explanation_repo.create_edge(
+            target_type="evaluation",
+            target_id=ev.id,
+            source_type="health_data",
+            source_id=None,
+            contribution_weight=0.5,
+            description=f"Baseline data for {metric_key} (n={pre_stats.n}, mean={pre_stats.mean:.2f})",
+        )
+        
+        # Edge from intervention data to evaluation
+        explanation_repo.create_edge(
+            target_type="evaluation",
+            target_id=ev.id,
+            source_type="health_data",
+            source_id=None,
+            contribution_weight=0.5,
+            description=f"Intervention data for {metric_key} (n={post_stats.n}, mean={post_stats.mean:.2f})",
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to create audit event for evaluation {ev.id}: {e}")
+    
     return ev
 

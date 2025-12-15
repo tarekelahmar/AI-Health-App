@@ -12,6 +12,8 @@ from app.domain.repositories.daily_checkin_repository import DailyCheckInReposit
 from app.domain.repositories.adherence_repository import AdherenceRepository
 from app.domain.repositories.narrative_repository import NarrativeRepository
 from app.domain.repositories.personal_driver_repository import PersonalDriverRepository
+from app.domain.repositories.audit_repository import AuditRepository
+from app.domain.repositories.explanation_repository import ExplanationRepository
 
 # Optional LLM translation layer (safe): reuse your existing pattern if present
 try:
@@ -250,6 +252,14 @@ def generate_and_persist_narrative(
     end: date,
     include_llm_translation: bool = False,
 ):
+    """
+    Generate and persist narrative.
+    
+    WEEK 4: Creates audit events and explanation edges for explainability.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     repo = NarrativeRepository(db)
     draft = synthesize_narrative(
         db,
@@ -259,7 +269,7 @@ def generate_and_persist_narrative(
         end=end,
         include_llm_translation=include_llm_translation,
     )
-    return repo.upsert(
+    narrative = repo.upsert(
         user_id=user_id,
         period_type=period_type,
         period_start=start,
@@ -272,4 +282,51 @@ def generate_and_persist_narrative(
         risks_json=draft.risks,
         metadata_json=draft.metadata,
     )
+    
+    # WEEK 4: Create audit event for explainability
+    try:
+        audit_repo = AuditRepository(db)
+        explanation_repo = ExplanationRepository(db)
+        
+        # Extract source metrics from metadata
+        source_metrics = []
+        if draft.metadata:
+            # Try to extract metric keys from insights/evaluations used
+            source_metrics = draft.metadata.get("source_metrics", [])
+        
+        audit_repo.create(
+            user_id=user_id,
+            entity_type="narrative",
+            entity_id=narrative.id,
+            decision_type="created",
+            decision_reason=f"Generated {period_type} narrative for period {start} to {end}",
+            source_metrics=source_metrics,
+            time_windows={"period": {"start": start.isoformat(), "end": end.isoformat()}},
+            detectors_used=["narrative_synthesizer"],
+            thresholds_crossed=[],
+            safety_checks_applied=[],
+            metadata={
+                "period_type": period_type,
+                "key_points_count": len(draft.key_points),
+                "drivers_count": len(draft.drivers),
+                "actions_count": len(draft.actions),
+                "risks_count": len(draft.risks),
+            },
+        )
+        
+        # Create explanation edges from insights/evaluations to narrative
+        # (This would require tracking which insights/evaluations were used)
+        # For now, create a generic edge
+        explanation_repo.create_edge(
+            target_type="narrative",
+            target_id=narrative.id,
+            source_type="insight",
+            source_id=None,
+            contribution_weight=1.0,
+            description=f"Synthesized from insights and evaluations in period {start} to {end}",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to create audit event for narrative {narrative.id}: {e}")
+    
+    return narrative
 

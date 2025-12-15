@@ -29,15 +29,21 @@ from app.engine.insight_factory import (
     make_instability_insight_payload,
 )
 from app.domain.repositories.insight_repository import InsightRepository
+from app.domain.repositories.audit_repository import AuditRepository
+from app.domain.repositories.explanation_repository import ExplanationRepository
 
 
 def run_loop(db: Session, user_id: int) -> dict:
     """
     Runs detection across all registry metrics for a user.
     Creates Insights with status="detected" and structured evidence.
+    
+    WEEK 4: Populates audit events and explanation edges for explainability.
     """
     created = []
     repo = InsightRepository(db)
+    audit_repo = AuditRepository(db)
+    explanation_repo = ExplanationRepository(db)
 
     # 0) Safety gate - check for red flags BEFORE normal detectors
     latest_metrics = {}
@@ -125,6 +131,26 @@ def run_loop(db: Session, user_id: int) -> dict:
             change_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=change_window_days
             )
+            
+            # WEEK 4: Check for insufficient data
+            if len(change_values) < 5:
+                # Create "insufficient data" insight instead of silently skipping
+                insight = repo.create(
+                    user_id=user_id,
+                    title=f"Insufficient data for {metric_key}",
+                    description=f"Not enough data points ({len(change_values)} < 5) to detect changes in {metric_key}. Please collect more data.",
+                    insight_type="insufficient_data",
+                    confidence_score=1.0,  # High confidence that data is insufficient
+                    metadata_json=json.dumps({
+                        "metric_key": metric_key,
+                        "data_points": len(change_values),
+                        "required_points": 5,
+                        "status": "insufficient_data",
+                    }),
+                )
+                created.append(insight)
+                continue
+            
             change = detect_change(
                 metric_key=metric_key,
                 values=change_values,
@@ -145,12 +171,46 @@ def run_loop(db: Session, user_id: int) -> dict:
                     metadata_json=json.dumps(evidence),
                 )
                 created.append(insight)
+                
+                # WEEK 4: Create audit event for explainability
+                try:
+                    audit_repo.create(
+                        user_id=user_id,
+                        entity_type="insight",
+                        entity_id=insight.id,
+                        decision_type="created",
+                        decision_reason=f"Change detected in {metric_key}",
+                        source_metrics=[metric_key],
+                        time_windows={metric_key: {"start": change.get("window_start"), "end": change.get("window_end")}},
+                        detectors_used=["change_detector"],
+                        thresholds_crossed=[{"threshold": "z_score", "value": change.get("z_score"), "threshold_value": policy.change.z_threshold}],
+                        safety_checks_applied=[],
+                        metadata={"baseline_mean": baseline.mean, "baseline_std": baseline.std},
+                    )
+                    
+                    # Create explanation edge from baseline to insight
+                    explanation_repo.create_edge(
+                        target_type="insight",
+                        target_id=insight.id,
+                        source_type="baseline",
+                        source_id=None,  # Baseline doesn't have a single ID
+                        contribution_weight=1.0,
+                        description=f"Change detected relative to baseline (mean={baseline.mean:.2f}, std={baseline.std:.2f})",
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create audit event for insight {insight.id}: {e}")
 
         # 3) Trend detection (14d)
         if "trend" in policy.allowed_insights and policy.trend:
             trend_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=trend_window_days
             )
+            
+            # WEEK 4: Check for insufficient data
+            if len(trend_values) < 7:
+                # Skip trend detection if insufficient data (already handled above for change)
+                continue
+            
             trend = detect_trend(
                 metric_key=metric_key,
                 values=trend_values,
@@ -164,17 +224,40 @@ def run_loop(db: Session, user_id: int) -> dict:
                     user_id=user_id,
                     title=title,
                     description=summary,
-                    insight_type="change",
+                    insight_type="trend",
                     confidence_score=confidence,
                     metadata_json=json.dumps(evidence),
                 )
                 created.append(insight)
+                
+                # WEEK 4: Create audit event
+                try:
+                    audit_repo.create(
+                        user_id=user_id,
+                        entity_type="insight",
+                        entity_id=insight.id,
+                        decision_type="created",
+                        decision_reason=f"Trend detected in {metric_key}",
+                        source_metrics=[metric_key],
+                        time_windows={metric_key: {"start": trend.get("window_start"), "end": trend.get("window_end")}},
+                        detectors_used=["trend_detector"],
+                        thresholds_crossed=[{"threshold": "slope", "value": trend.get("slope"), "threshold_value": policy.trend.slope_threshold}],
+                        safety_checks_applied=[],
+                        metadata={"slope": trend.get("slope")},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create audit event for trend insight {insight.id}: {e}")
 
         # 4) Instability detection (14d)
         if "instability" in policy.allowed_insights and policy.instability:
             inst_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=instability_window_days
             )
+            
+            # WEEK 4: Check for insufficient data
+            if len(inst_values) < 7:
+                continue
+            
             instability = detect_instability(
                 metric_key=metric_key,
                 values=inst_values,
@@ -189,11 +272,29 @@ def run_loop(db: Session, user_id: int) -> dict:
                     user_id=user_id,
                     title=title,
                     description=summary,
-                    insight_type="change",
+                    insight_type="instability",
                     confidence_score=confidence,
                     metadata_json=json.dumps(evidence),
                 )
                 created.append(insight)
+                
+                # WEEK 4: Create audit event
+                try:
+                    audit_repo.create(
+                        user_id=user_id,
+                        entity_type="insight",
+                        entity_id=insight.id,
+                        decision_type="created",
+                        decision_reason=f"Instability detected in {metric_key}",
+                        source_metrics=[metric_key],
+                        time_windows={metric_key: {"start": instability.get("window_start"), "end": instability.get("window_end")}},
+                        detectors_used=["instability_detector"],
+                        thresholds_crossed=[{"threshold": "std_ratio", "value": instability.get("std_ratio"), "threshold_value": policy.instability.ratio_threshold}],
+                        safety_checks_applied=[],
+                        metadata={"baseline_std": baseline.std},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to create audit event for instability insight {insight.id}: {e}")
 
     # Apply guardrails: filter weak insights and apply escalation rules
     # Convert Insight objects to dicts for filtering

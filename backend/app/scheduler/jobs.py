@@ -287,7 +287,8 @@ def job_generate_daily_narratives() -> dict:
 def job_sync_whoop_for_all_users() -> dict:
     """
     SECURITY FIX (Risk #10): Wrapped with idempotency check.
-    MVP: sync WHOOP for all users who have a token.
+    SECURITY FIX (Week 1): Consent is now enforced in ProviderSyncService.sync_whoop().
+    MVP: sync WHOOP for all users who have a token AND have consented.
     """
     from sqlalchemy.orm import Session
     db: Session = SessionLocal()
@@ -295,8 +296,10 @@ def job_sync_whoop_for_all_users() -> dict:
         # Lazy import to avoid circular deps
         from app.domain.models.user import User
         from app.domain.repositories.provider_token_repository import ProviderTokenRepository
+        from app.domain.repositories.consent_repository import ConsentRepository
 
         token_repo = ProviderTokenRepository(db)
+        consent_repo = ConsentRepository(db)
         svc = ProviderSyncService(db)
 
         users = db.query(User).all()
@@ -304,22 +307,43 @@ def job_sync_whoop_for_all_users() -> dict:
         synced = 0
         skipped = 0
         errors = 0
+        consent_blocked = 0
         
         for u in users:
             tok = token_repo.get(user_id=u.id, provider="whoop")
             if not tok:
                 skipped += 1
                 continue
+            
+            # SECURITY FIX: Check consent before attempting sync
+            consent = consent_repo.get_latest(u.id)
+            if not consent or not consent.consents_to_data_analysis:
+                consent_blocked += 1
+                logger.debug(f"[job_sync_whoop] user_id={u.id} skipped: no consent")
+                continue
+            
             try:
-                svc.sync_whoop(user_id=u.id, since=since)
-                synced += 1
+                result = svc.sync_whoop(user_id=u.id, since=since)
+                # Check if sync was blocked by consent (returns errors with consent_required)
+                if result.get("errors") and any(e.get("reason") == "consent_required" or e.get("reason") == "consent_not_granted" for e in result.get("errors", [])):
+                    consent_blocked += 1
+                elif result.get("inserted", 0) > 0:
+                    synced += 1
+                else:
+                    skipped += 1
             except Exception as e:
                 errors += 1
                 logger.error(f"[job_sync_whoop] user_id={u.id} error={e}")
                 # swallow per-user failures so job continues
                 continue
         
-        return {"synced": synced, "skipped": skipped, "errors": errors, "total_users": len(users)}
+        return {
+            "synced": synced,
+            "skipped": skipped,
+            "errors": errors,
+            "consent_blocked": consent_blocked,
+            "total_users": len(users)
+        }
     finally:
         db.close()
 

@@ -18,16 +18,19 @@ from app.api.schemas.providers import (
 )
 from app.domain.repositories.provider_token_repository import ProviderTokenRepository
 from app.domain.repositories.oauth_state_repository import OAuthStateRepository
+from app.domain.models.oauth_state import OAuthState
 from app.providers.whoop.whoop_adapter import WhoopAdapter
 from app.providers.whoop.whoop_oauth import compute_expires_at
 from app.engine.providers.provider_sync_service import ProviderSyncService
 
 # Step Q dependency:
 from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/providers/whoop", tags=["providers"])
+# SECURITY FIX: Use make_v1_router to enforce auth (except callback which is public for OAuth)
+router = make_v1_router(prefix="/api/v1/providers/whoop", tags=["providers"])
 
 
 @router.get("/status", response_model=ProviderStatusResponse)
@@ -74,24 +77,44 @@ def whoop_connect(
 def whoop_callback(
     code: str = Query(...),
     state: Optional[str] = Query(None),
-    user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
+    """
+    OAuth callback for WHOOP.
+    
+    WEEK 2: This endpoint is public (no auth required) because OAuth redirects don't include bearer tokens.
+    Security is provided by validating the state token and extracting user_id from the state record.
+    """
     # SECURITY: Validate state token to prevent CSRF
     if not state:
-        logger.error(f"WHOOP callback: Missing state parameter for user_id={user_id}")
+        logger.error("WHOOP callback: Missing state parameter")
         raise HTTPException(status_code=400, detail="Missing state parameter")
     
     state_repo = OAuthStateRepository(db)
-    state_obj = state_repo.get_and_consume(
-        user_id=user_id,
-        provider="whoop",
-        state_token=state,
+    
+    # WEEK 2: Find state by token (not by user_id, since we don't have auth in redirect)
+    # The state record contains the user_id, which we extract after validation
+    now = datetime.utcnow()
+    state_obj = (
+        db.query(OAuthState)
+        .filter(
+            OAuthState.provider == "whoop",
+            OAuthState.state_token == state,
+            OAuthState.expires_at > now,
+        )
+        .first()
     )
     
     if not state_obj:
-        logger.error(f"WHOOP callback: Invalid or expired state token for user_id={user_id}")
+        logger.error(f"WHOOP callback: Invalid or expired state token")
         raise HTTPException(status_code=400, detail="Invalid or expired state token")
+    
+    # Extract user_id from state record (this is the authenticated user who initiated OAuth)
+    user_id = state_obj.user_id
+    
+    # Consume (delete) the state token (one-time use)
+    db.delete(state_obj)
+    db.commit()
     
     adapter = WhoopAdapter(db)
     repo = ProviderTokenRepository(db)

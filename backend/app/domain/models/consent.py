@@ -27,6 +27,15 @@ class Consent(Base):
     understands_recommendations_experimental = Column(Boolean, nullable=False, default=False)
     understands_can_stop_anytime = Column(Boolean, nullable=False, default=False)
 
+    # WEEK 2: Provider-scoped consent
+    consents_to_whoop_ingestion = Column(Boolean, nullable=False, default=False)
+    consents_to_fitbit_ingestion = Column(Boolean, nullable=False, default=False)
+    consents_to_oura_ingestion = Column(Boolean, nullable=False, default=False)
+    
+    # WEEK 2: Revocation support
+    revoked_at = Column(DateTime, nullable=True)  # If set, consent is revoked
+    revocation_reason = Column(Text, nullable=True)
+
     # Additional metadata
     onboarding_completed = Column(Boolean, nullable=False, default=False)
     onboarding_completed_at = Column(DateTime, nullable=True)

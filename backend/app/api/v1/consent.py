@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.api.schemas.consent import ConsentCreate, ConsentResponse, OnboardingCompleteRequest
+from app.api.schemas.consent import ConsentCreate, ConsentResponse, OnboardingCompleteRequest, ConsentRevokeRequest
 from app.domain.repositories.consent_repository import ConsentRepository
 from app.api.auth_mode import get_request_user_id
 from app.api.router_factory import make_v1_router
@@ -55,8 +55,29 @@ def create_consent(
         consents_to_data_analysis=payload.consents_to_data_analysis,
         understands_recommendations_experimental=payload.understands_recommendations_experimental,
         understands_can_stop_anytime=payload.understands_can_stop_anytime,
+        consents_to_whoop_ingestion=payload.consents_to_whoop_ingestion,
+        consents_to_fitbit_ingestion=payload.consents_to_fitbit_ingestion,
+        consents_to_oura_ingestion=payload.consents_to_oura_ingestion,
         consent_text_json=payload.consent_text_json,
     )
+    return consent
+
+
+@router.post("/revoke", response_model=ConsentResponse)
+def revoke_consent(
+    payload: ConsentRevokeRequest,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Revoke consent for the authenticated user.
+    
+    WEEK 2: Immediately blocks all future provider ingestion.
+    """
+    repo = ConsentRepository(db)
+    consent = repo.revoke(user_id=user_id, reason=payload.reason)
+    if not consent:
+        raise HTTPException(status_code=404, detail="No consent record found to revoke")
     return consent
 
 

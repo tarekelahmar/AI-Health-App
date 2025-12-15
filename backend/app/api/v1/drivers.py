@@ -25,12 +25,23 @@ router = make_v1_router(prefix="/api/v1/drivers", tags=["drivers"])
 
 def _to_schema(finding) -> DriverFindingOut:
     """Convert DriverFinding model to schema"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     details = None
     if finding.details_json:
         try:
             details = json.loads(finding.details_json)
-        except Exception:
-            pass
+        except Exception as e:
+            # WEEK 4: Log error instead of silently ignoring
+            logger.warning(
+                "driver_finding_json_parse_failed",
+                extra={
+                    "finding_id": finding.id,
+                    "error": str(e),
+                },
+            )
+            details = {}
     
     return DriverFindingOut(
         id=finding.id,

@@ -13,19 +13,35 @@ from app.domain.models.loop_decision import LoopDecision
 from app.domain.repositories.loop_decision_repository import LoopDecisionRepository
 
 from app.domain.repositories.evaluation_repository import EvaluationRepository
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
 from app.engine.loop_orchestrator import decide_next_step
 
-router = APIRouter(prefix="/api/v1/loop", tags=["loop"], dependencies=[])
+# SECURITY FIX (Week 1): Use make_v1_router to enforce auth
+router = make_v1_router(prefix="/api/v1/loop", tags=["loop"])
 
 
 @router.post("/run/{evaluation_id}")
-def run_loop_decision(evaluation_id: int, db: Session = Depends(get_db)):
+def run_loop_decision(
+    evaluation_id: int,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Run loop decision for an evaluation.
+    
+    SECURITY FIX (Week 1): Verify ownership before allowing loop decision.
+    """
     # Direct lookup by evaluation_id
     evaluation = db.query(EvaluationResult).filter(EvaluationResult.id == evaluation_id).first()
     
     if not evaluation:
         raise HTTPException(status_code=404, detail="Evaluation not found")
+    
+    # SECURITY FIX: Verify ownership
+    if evaluation.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Cannot run loop decision: evaluation belongs to another user")
 
     decision_dict = decide_next_step(evaluation=evaluation)
 

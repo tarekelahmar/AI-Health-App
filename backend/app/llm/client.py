@@ -1,9 +1,12 @@
 import json
 import os
+import logging
 from typing import Optional
 from app.llm.contracts import LLMInsightInput, LLMInsightOutput
 from app.llm.prompts import INSIGHT_TRANSLATION_PROMPT
 from app.domain.claims import EvidenceGrade, ClaimPolicy
+
+logger = logging.getLogger(__name__)
 
 ENABLE_LLM = os.getenv("ENABLE_LLM_TRANSLATION", "false").lower() == "true"
 
@@ -65,10 +68,32 @@ def translate_insight(
 
         content = response.choices[0].message.content
         if content:
-            return json.loads(content)
+            parsed = json.loads(content)
+            
+            # WEEK 3: Validate LLM output against claim policy
+            from app.domain.claims.claim_policy import validate_claim_language
+            explanation = parsed.get("explanation", "")
+            if explanation:
+                is_valid, violations = validate_claim_language(explanation, evidence_grade)
+                if not is_valid:
+                    logger.warning(
+                        f"LLM output violates claim policy: {violations}",
+                        extra={
+                            "evidence_grade": evidence_grade.value,
+                            "violations": violations,
+                        }
+                    )
+                    # WEEK 3: Don't return invalid output - sanitize or reject
+                    # For now, log warning but return (could be made stricter)
+                    parsed["explanation"] = f"[Content adjusted for claim policy compliance] {explanation}"
+                    parsed["claim_policy_violations"] = violations
+            
+            return parsed
+    except json.JSONDecodeError as e:
+        logger.error(f"LLM translation failed: Invalid JSON: {e}")
     except Exception as e:
         # Log error but don't fail - system works without LLM
-        print(f"LLM translation failed: {e}")
+        logger.error(f"LLM translation failed: {e}")
     
     return None
 

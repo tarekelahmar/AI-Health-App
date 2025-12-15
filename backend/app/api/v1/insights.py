@@ -30,6 +30,14 @@ def run_insights(
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db)
 ):
+    """
+    Run insight generation loop for user.
+    
+    WEEK 4: Explicit error handling - no silent failures.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         result = run_loop(db=db, user_id=user_id)
         return {
@@ -37,9 +45,19 @@ def run_insights(
             "insights": [transform_insight(i) for i in result["items"]],
         }
     except Exception as e:
-        # Return empty result on error instead of crashing
-        return {
-            "created": 0,
-            "insights": [],
-            "error": str(e) if str(e) else "Unknown error"
-        }
+        # WEEK 4: Log error with structured logging, return explicit error response
+        logger.error(
+            "insight_generation_failed",
+            extra={
+                "user_id": user_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            },
+            exc_info=True,
+        )
+        # Return explicit error - don't silently return empty success
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Insight generation failed: {str(e)}. Check logs for details."
+        )

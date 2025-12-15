@@ -38,7 +38,28 @@ def log_adherence(
 
 
 @router.get("", response_model=list[AdherenceOut])
-def list_adherence(experiment_id: int, limit: int = 500, db: Session = Depends(get_db)):
+def list_adherence(
+    experiment_id: int,
+    user_id: int = Depends(get_request_user_id),
+    limit: int = 500,
+    db: Session = Depends(get_db)
+):
+    """
+    List adherence events for an experiment.
+    
+    SECURITY FIX (Week 1): Verify experiment ownership before returning adherence data.
+    """
+    from app.domain.repositories.experiment_repository import ExperimentRepository
+    
+    # SECURITY FIX: Verify experiment ownership
+    exp_repo = ExperimentRepository(db)
+    exp = exp_repo.get(experiment_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    if exp.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Cannot view adherence: experiment belongs to another user")
+    
     repo = AdherenceRepository(db)
-    return repo.list_by_experiment(experiment_id=experiment_id, limit=limit)
+    return repo.list_by_experiment_and_user(experiment_id=experiment_id, user_id=user_id, limit=limit)
 

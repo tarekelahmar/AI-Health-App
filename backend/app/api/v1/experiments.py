@@ -10,30 +10,72 @@ from app.core.database import get_db
 from app.api.schemas.experiments import ExperimentStart, ExperimentStop, ExperimentOut
 from app.domain.repositories.experiment_repository import ExperimentRepository
 from app.domain.repositories.intervention_repository import InterventionRepository
+from app.api.auth_mode import get_request_user_id
+from app.api.router_factory import make_v1_router
 
-router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"], dependencies=[])
+# SECURITY FIX (Week 1): Use make_v1_router to enforce auth
+router = make_v1_router(prefix="/api/v1/experiments", tags=["experiments"])
 
 
 @router.post("/start", response_model=ExperimentOut)
-def start_experiment(payload: ExperimentStart, db: Session = Depends(get_db)):
+def start_experiment(
+    payload: ExperimentStart,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Start a new experiment.
+    
+    SECURITY FIX (Week 1): Override payload.user_id with authenticated user_id to prevent spoofing.
+    """
     repo = ExperimentRepository(db)
     # (K3) Enforce that experiment cannot start on a blocked/high-risk intervention boundary.
     # MVP rule: if the referenced intervention is HIGH risk => block experiment start.
     if payload.intervention_id:
         irepo = InterventionRepository(db)
         row = irepo.get(payload.intervention_id)
+        # SECURITY FIX: Also check ownership of intervention
+        if row and row.user_id != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot start experiment: intervention belongs to another user.",
+            )
         if row and (row.safety_risk_level == "high"):
             raise HTTPException(
                 status_code=400,
                 detail="Cannot start experiment: intervention is HIGH risk / blocked by safety policy.",
             )
-    exp = Experiment(**payload.model_dump())
+    
+    # SECURITY FIX: Override payload.user_id with authenticated user_id
+    exp_data = payload.model_dump()
+    exp_data["user_id"] = user_id  # Use authenticated user_id, not payload.user_id
+    
+    from app.domain.models.experiment import Experiment
+    exp = Experiment(**exp_data)
     return repo.create(exp)
 
 
 @router.post("/{experiment_id}/stop", response_model=ExperimentOut)
-def stop_experiment(experiment_id: int, payload: ExperimentStop, db: Session = Depends(get_db)):
+def stop_experiment(
+    experiment_id: int,
+    payload: ExperimentStop,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Stop an experiment.
+    
+    SECURITY FIX (Week 1): Verify ownership before allowing stop.
+    """
     repo = ExperimentRepository(db)
+    exp = repo.get(experiment_id)
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # SECURITY FIX: Verify ownership
+    if exp.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Cannot stop experiment: belongs to another user")
+    
     ended_at = payload.ended_at or datetime.utcnow()
     updated = repo.stop(experiment_id=experiment_id, status=payload.status, ended_at=ended_at)
     if not updated:
@@ -42,7 +84,16 @@ def stop_experiment(experiment_id: int, payload: ExperimentStop, db: Session = D
 
 
 @router.get("", response_model=list[ExperimentOut])
-def list_experiments(user_id: int, limit: int = 100, db: Session = Depends(get_db)):
+def list_experiments(
+    user_id: int = Depends(get_request_user_id),
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    List experiments for the authenticated user.
+    
+    SECURITY FIX (Week 1): user_id now comes from authenticated request, not query parameter.
+    """
     repo = ExperimentRepository(db)
     return repo.list_by_user(user_id=user_id, limit=limit)
 
@@ -63,17 +114,27 @@ from app.engine.attribution.lagged_effects import LaggedEffectEngine
 from app.engine.attribution.attribution_to_insight import build_attribution_insight_domain_fields
 
 
-@router.post("/{experiment_id}/evaluate", response_model=EvaluationResultResponse, dependencies=[])
+@router.post("/{experiment_id}/evaluate", response_model=EvaluationResultResponse)
 def evaluate_experiment_endpoint(
     experiment_id: int,
     payload: EvaluateExperimentRequest = Body(default=EvaluateExperimentRequest()),
+    user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
+    """
+    Evaluate an experiment.
+    
+    SECURITY FIX (Week 1): Verify ownership before allowing evaluation.
+    """
     # Get experiment to access metric_key and user_id
     exp_repo = ExperimentRepository(db)
     exp = exp_repo.get(experiment_id)
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # SECURITY FIX: Verify ownership
+    if exp.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Cannot evaluate experiment: belongs to another user")
     
     metric_key = exp.primary_metric_key
     
@@ -130,14 +191,26 @@ def evaluate_experiment_endpoint(
     else:
         details["attribution"] = None
     
-    # Write back details_json
+    # WEEK 4: Write back details_json with explicit error handling
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         ev.details_json = json.dumps(details) if isinstance(details, dict) else details
         db.commit()
         db.refresh(ev)
-    except Exception:
-        # If update fails, continue; evaluation response still returns
-        pass
+    except Exception as e:
+        # WEEK 4: Log error but don't fail entire evaluation
+        logger.warning(
+            "evaluation_details_update_failed",
+            extra={
+                "user_id": user_id,
+                "experiment_id": experiment_id,
+                "evaluation_id": ev.id,
+                "error": str(e),
+            },
+        )
+        # Continue - evaluation is still valid without details update
     
     # 4) Create an "attribution" insight so it shows up in the feed (H3)
     try:
@@ -150,9 +223,18 @@ def evaluate_experiment_endpoint(
             metric_key=metric_key,
         )
         insight_repo.create(**insight_fields)
-    except Exception:
-        # Never fail the evaluation because insight creation failed
-        pass
+    except Exception as e:
+        # WEEK 4: Log error but don't fail entire evaluation
+        logger.warning(
+            "attribution_insight_creation_failed",
+            extra={
+                "user_id": user_id,
+                "experiment_id": experiment_id,
+                "evaluation_id": ev.id,
+                "error": str(e),
+            },
+        )
+        # Continue - evaluation is still valid without attribution insight
     
     return EvaluationResultResponse(
         id=ev.id,
