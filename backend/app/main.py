@@ -5,6 +5,11 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 import logging
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file (for os.getenv() calls)
+load_dotenv()
 
 from app.config.settings import get_settings, validate_config
 from app.config.logging import setup_logging
@@ -96,8 +101,38 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database connection ready (migrations should be applied separately)")
     
-    # STEP L: start optional scheduler for dev/MVP (if ENABLE_SCHEDULER=true)
-    start_scheduler()
+    # AUDIT FIX: Validate token encryption in production before starting
+    if env_mode.value in ["production", "staging"] and config.get("providers_enabled", False):
+        from app.core.encryption import get_encryption_service
+        enc_service = get_encryption_service()
+        # Test encryption to ensure it's working
+        try:
+            test_encrypted = enc_service.encrypt("test_token")
+            if test_encrypted == "test_token":
+                raise RuntimeError("Token encryption is returning plaintext - encryption not working")
+            # Decrypt to verify
+            decrypted = enc_service.decrypt(test_encrypted)
+            if decrypted != "test_token":
+                raise RuntimeError("Token encryption/decryption test failed")
+            logger.info("Token encryption validated successfully")
+        except Exception as e:
+            logger.critical(f"Token encryption validation failed: {e}")
+            raise RuntimeError(
+                f"CRITICAL: Token encryption must be working in {env_mode.value} mode. "
+                f"Fix encryption configuration before starting: {e}"
+            )
+    
+    # AUDIT FIX: Disable in-process scheduler in production
+    # In production, scheduler should run in a dedicated worker process
+    if env_mode.value == "production":
+        logger.warning(
+            "In-process APScheduler is disabled in production. "
+            "Use a dedicated worker process for scheduled jobs."
+        )
+        # Don't start scheduler in production
+    else:
+        # STEP L: start optional scheduler for dev/staging (if ENABLE_SCHEDULER=true)
+        start_scheduler()
     
     yield
     

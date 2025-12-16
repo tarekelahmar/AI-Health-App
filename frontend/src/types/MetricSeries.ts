@@ -4,8 +4,10 @@ export interface MetricPoint {
 }
 
 export interface MetricBaseline {
-  mean: number;
-  std: number;
+  mean: number | null;
+  std: number | null;
+  available: boolean;
+  reason: string | null;
 }
 
 export interface MetricSeriesResponse {

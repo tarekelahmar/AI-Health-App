@@ -108,7 +108,7 @@ async def get_current_user_optional(token: Optional[str] = Depends(oauth2_option
 
 def get_request_user_id(
     request: Request,
-    user_id: Optional[int] = Query(default=None),
+    query_user_id: Optional[int] = Query(default=None, alias="user_id"),
     current_user=Depends(get_current_user_optional),
 ) -> int:
     """
@@ -116,16 +116,19 @@ def get_request_user_id(
 
     - public mode: requires ?user_id=...
     - private mode: ignores ?user_id=... and uses current_user.id
+    
+    Note: Uses alias="user_id" so the query param is still ?user_id=...
+    but the function parameter name won't conflict with path params.
     """
     if is_private_mode():
         # current_user_optional() already enforced auth in private mode
         return int(current_user.id)
 
     # public mode
-    if user_id is None:
+    if query_user_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required query param: user_id (AUTH_MODE=public)",
         )
-    return int(user_id)
+    return int(query_user_id)
 

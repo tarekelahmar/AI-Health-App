@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
 
@@ -8,8 +8,13 @@ class MetricPoint(BaseModel):
 
 
 class MetricBaseline(BaseModel):
-    mean: float
-    std: float
+    """
+    AUDIT FIX: Baseline can be null/unknown instead of misleading 0/0.
+    """
+    mean: Optional[float] = None
+    std: Optional[float] = None
+    available: bool = True  # False if baseline not computed yet
+    reason: Optional[str] = None  # Why baseline is unavailable (e.g., "insufficient_data")
 
 
 class MetricSeriesResponse(BaseModel):

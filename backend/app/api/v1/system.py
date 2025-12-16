@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.config.environment import get_env_mode, get_mode_config, is_production, is_staging, is_dev
 from app.api.router_factory import make_v1_router
+from app.api.auth_mode import get_request_user_id
 
 router = make_v1_router(prefix="/api/v1/system", tags=["system"])
 
@@ -29,10 +30,13 @@ class SystemStatusResponse(BaseModel):
 
 @router.get("/status", response_model=SystemStatusResponse)
 def get_system_status(
+    user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
     """
     Get system status including environment mode, auth mode, providers, and safety.
+    
+    AUDIT FIX: Requires authentication to prevent security posture leakage.
     """
     env_mode = get_env_mode()
     config = get_mode_config()
