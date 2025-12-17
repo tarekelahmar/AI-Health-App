@@ -65,17 +65,33 @@ class TokenEncryptionService:
         """
         Encrypt a token.
         
-        Returns encrypted string, or original if encryption unavailable.
+        AUDIT FIX: Fail-closed in production - never return plaintext.
+        Raises exception if encryption unavailable in production/staging.
         """
-        if not self._fernet or not plaintext:
-            return plaintext
+        from app.config.environment import is_production, is_staging
+        
+        if not plaintext:
+            raise ValueError("Cannot encrypt empty token")
+        
+        # AUDIT FIX: In production/staging, encryption MUST be available
+        if not self._fernet:
+            if is_production() or is_staging():
+                raise RuntimeError(
+                    f"Token encryption is REQUIRED in {('production' if is_production() else 'staging')} "
+                    "but encryption service is not initialized. "
+                    "Set SECRET_KEY environment variable and ensure cryptography library is installed."
+                )
+            # Dev mode: still fail but with clearer message
+            raise RuntimeError(
+                "Token encryption unavailable. Set SECRET_KEY environment variable."
+            )
         
         try:
             encrypted = self._fernet.encrypt(plaintext.encode())
             return encrypted.decode()
         except Exception as e:
             logger.error(f"Token encryption failed: {e}")
-            # SECURITY: Fail safe - don't store unencrypted tokens
+            # AUDIT FIX: Fail-closed - never store unencrypted tokens
             raise ValueError(f"Token encryption failed: {e}")
     
     def decrypt(self, ciphertext: str) -> str:

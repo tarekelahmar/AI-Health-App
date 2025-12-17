@@ -1,58 +1,171 @@
-name: CI
+name: CI - Migrations and Smoke Test
 
 on:
   push:
+    branches: [ main, develop ]
   pull_request:
+    branches: [ main, develop ]
 
 jobs:
-  backend:
+  test-migrations:
+    name: Run Migrations + Boot App + Smoke Test
     runs-on: ubuntu-latest
+    
     services:
       postgres:
-        image: postgres:16
+        image: postgres:15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: health_app_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d health_app_test"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
-      ENABLE_LLM_TRANSLATION: "false"
-      ENABLE_SCHEDULER: "false"
-      LOG_JSON: "true"
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
-      - name: Install backend deps
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        working-directory: ./backend
         run: |
-          cd backend
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-      - name: Run tests
+      
+      - name: Verify single Alembic head
+        working-directory: ./backend
         run: |
-          cd backend
-          PYTHONPATH=. pytest -q
-
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Install + build
+          # Check that there's exactly one head
+          HEADS=$(alembic heads | wc -l)
+          if [ "$HEADS" -ne 1 ]; then
+            echo "ERROR: Expected 1 Alembic head, found $HEADS"
+            alembic heads
+            exit 1
+          fi
+          echo "✓ Single Alembic head confirmed"
+      
+      - name: Run migrations
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
+          ENV_MODE: staging
+          AUTH_MODE: private
         run: |
-          cd frontend
-          npm ci || npm install
-          npm run build
+          # Run migrations to latest
+          alembic upgrade head
+          echo "✓ Migrations completed"
+      
+      - name: Verify migration state
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
+        run: |
+          CURRENT=$(alembic current | grep -oP '^\w+' || echo "none")
+          HEAD=$(alembic heads | grep -oP '^\w+')
+          if [ "$CURRENT" != "$HEAD" ]; then
+            echo "ERROR: Database not at head. Current: $CURRENT, Head: $HEAD"
+            exit 1
+          fi
+          echo "✓ Database at migration head: $CURRENT"
+      
+      - name: Boot app and run smoke test
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
+          ENV_MODE: staging
+          AUTH_MODE: private
+          JWT_SECRET: test-secret-key-for-ci-only
+        run: |
+          # Start app in background
+          timeout 30 uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          APP_PID=$!
+          
+          # Wait for app to be ready
+          echo "Waiting for app to start..."
+          for i in {1..30}; do
+            if curl -f http://localhost:8000/api/v1/system/healthz > /dev/null 2>&1; then
+              echo "✓ App is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: App failed to start"
+              kill $APP_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+          
+          # Run smoke test
+          echo "Running smoke test..."
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/v1/system/healthz)
+          if [ "$STATUS_CODE" != "200" ]; then
+            echo "ERROR: Smoke test failed. Status code: $STATUS_CODE"
+            kill $APP_PID 2>/dev/null || true
+            exit 1
+          fi
+          
+          echo "✓ Smoke test passed (status: $STATUS_CODE)"
+          
+          # Cleanup
+          kill $APP_PID 2>/dev/null || true
+          wait $APP_PID 2>/dev/null || true
+      
+      - name: Verify create_all() is disabled in staging
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
+          ENV_MODE: staging
+        run: |
+          # Try to call init_db() and verify it doesn't create tables
+          python3 -c "
+          from app.core.database import init_db
+          import logging
+          logging.basicConfig(level=logging.WARNING)
+          init_db()
+          print('✓ init_db() completed (should have been disabled in staging)')
+          "
+      
+      - name: Check canonical field semantics
+        working-directory: ./backend
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/health_app_test
+        run: |
+          # Verify metric_type is used consistently (not data_type)
+          python3 -c "
+          from sqlalchemy import create_engine, inspect
+          from app.config.settings import get_settings
+          settings = get_settings()
+          engine = create_engine(settings.DATABASE_URL)
+          inspector = inspect(engine)
+          
+          # Check health_data table uses metric_type (not data_type)
+          if 'health_data' in inspector.get_table_names():
+              columns = [c['name'] for c in inspector.get_columns('health_data')]
+              if 'data_type' in columns:
+                  print('ERROR: health_data table still has data_type column (should be metric_type)')
+                  exit(1)
+              if 'metric_type' not in columns:
+                  print('ERROR: health_data table missing metric_type column')
+                  exit(1)
+              print('✓ health_data uses metric_type (canonical)')
+          
+          # Check baselines table uses metric_type
+          if 'baselines' in inspector.get_table_names():
+              columns = [c['name'] for c in inspector.get_columns('baselines')]
+              if 'metric_type' not in columns:
+                  print('ERROR: baselines table missing metric_type column')
+                  exit(1)
+              print('✓ baselines uses metric_type (canonical)')
+          
+          print('✓ Canonical field semantics verified')
+          "

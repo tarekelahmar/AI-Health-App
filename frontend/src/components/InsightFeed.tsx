@@ -1,6 +1,7 @@
 import { Insight } from "../types/Insight";
 import { InteractionSummary } from "./InteractionSummary";
 import { SafetyBadge, SafetyDetails } from "./SafetyBadge";
+import { DomainMeta } from "./DomainMeta";
 
 function SafetyTriggers({ triggers }: { triggers: any[] }) {
   return (
@@ -120,6 +121,9 @@ export function InsightFeed({ insights, filterByMetric }: Props) {
             <div className="mt-2 text-xs text-gray-600">
               Metric: <strong>{insight.metric_key}</strong>
             </div>
+
+            {/* Domain label (read-only metadata). Explanation is only shown if domain info is provided elsewhere. */}
+            <DomainMeta domainKey={insight.domain_key} />
 
             {/* STEP S: Always show confidence and uncertainty */}
             <div className={`mt-2 text-xs ${confidenceColor(insight.confidence)}`}>

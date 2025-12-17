@@ -68,7 +68,13 @@ class ConsentRepository:
     
     def is_consent_valid(self, user_id: int, provider: Optional[str] = None) -> bool:
         """
-        Check if consent is valid (not revoked and provider-specific consent granted if provider specified).
+        Check if consent is valid.
+        
+        IMPORTANT (scope separation):
+        - If provider is specified: this checks **provider ingestion** consent only (plus not-revoked).
+          It intentionally does NOT require analysis consent, so users can sync/store and view raw data
+          without opting into analysis (product stance permitting).
+        - If provider is not specified: this checks **analysis** consent (plus not-revoked).
         
         WEEK 2: Returns False if consent is revoked or provider-specific consent not granted.
         """
@@ -80,22 +86,20 @@ class ConsentRepository:
         if consent.revoked_at:
             return False
         
-        # Check general data analysis consent
-        if not consent.consents_to_data_analysis:
+        # Provider-specific ingestion consent (DO NOT couple to analysis consent)
+        if provider:
+            p = provider.lower()
+            if p == "whoop":
+                return consent.consents_to_whoop_ingestion
+            if p == "fitbit":
+                return consent.consents_to_fitbit_ingestion
+            if p == "oura":
+                return consent.consents_to_oura_ingestion
+            # Unknown provider -> deny by default
             return False
         
-        # Check provider-specific consent if provider specified
-        if provider:
-            if provider.lower() == "whoop":
-                return consent.consents_to_whoop_ingestion
-            elif provider.lower() == "fitbit":
-                return consent.consents_to_fitbit_ingestion
-            elif provider.lower() == "oura":
-                return consent.consents_to_oura_ingestion
-            # Unknown provider - require general consent
-            return True
-        
-        return True
+        # Analysis consent (processing / derived outputs)
+        return bool(consent.consents_to_data_analysis)
 
     def mark_onboarding_completed(self, user_id: int) -> Optional[Consent]:
         """Mark onboarding as completed for user"""

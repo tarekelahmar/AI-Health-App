@@ -51,7 +51,8 @@ from app.api.v1.explain import router as explain_router
 from app.api.v1.trust import router as trust_router
 from app.api.v1.personal_model import router as personal_model_router
 from app.api.v1.audit import router as audit_router
-from app.api.v1.system import router as system_router
+from app.api.v1.system import router as system_router, public_router as system_public_router
+from app.api.v1.health_domains import router as health_domains_router
 from app.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -168,19 +169,21 @@ if settings.ENABLE_RATE_LIMITING:
     logger.info("Rate limiting enabled")
 
 # Include routers (modular endpoints)
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
-app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
-app.include_router(labs.router, prefix="/api/v1/labs", tags=["labs"])
-app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearables"])
-app.include_router(symptoms.router, prefix="/api/v1/symptoms", tags=["symptoms"])
-app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["assessments"])
-app.include_router(insights.router, prefix="/api/v1/insights")
+# IMPORTANT: Some routers are defined with full `/api/v1/...` prefixes already (make_v1_router),
+# while others are plain APIRouter() and need a mount prefix here.
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])  # router has no prefix
+app.include_router(users.router)  # router already includes /api/v1/users
+app.include_router(labs.router, prefix="/api/v1/labs", tags=["labs"])  # router prefix=""
+app.include_router(wearables.router, prefix="/api/v1/wearables", tags=["wearables"])  # router has no prefix
+app.include_router(symptoms.router, prefix="/api/v1/symptoms", tags=["symptoms"])  # router has no prefix
+app.include_router(assessments.router)  # router already includes /api/v1/assessments
+app.include_router(insights.router)  # router already includes /api/v1/insights
 # protocols.router is replaced by protocols_router (new implementation)
 # app.include_router(protocols.router, prefix="/api/v1/protocols", tags=["protocols"])
-app.include_router(metrics.router, prefix="/api/v1/metrics", tags=["metrics"])
-app.include_router(health_data_router, prefix="/api/v1", tags=["health-data"])
-app.include_router(baselines_router, prefix="/api/v1", tags=["baselines"])
-app.include_router(coverage_router, prefix="/api/v1", tags=["coverage"])
+app.include_router(metrics.router)  # router already includes /api/v1/metrics
+app.include_router(health_data_router)  # router already includes /api/v1/health-data
+app.include_router(baselines_router)  # router already includes /api/v1/baselines
+app.include_router(coverage_router)  # router already includes /api/v1/coverage
 app.include_router(interventions_router)
 app.include_router(protocols_router)
 app.include_router(experiments_router)
@@ -206,6 +209,8 @@ app.include_router(trust_router)
 app.include_router(personal_model_router)
 app.include_router(audit_router)
 app.include_router(system_router)
+app.include_router(system_public_router)
+app.include_router(health_domains_router)
 
 # Observability
 app.include_router(metrics_system_router)

@@ -68,27 +68,83 @@ def translate_insight(
 
         content = response.choices[0].message.content
         if content:
-            parsed = json.loads(content)
+            # AUDIT FIX: Strict schema validation using Pydantic
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"LLM translation failed: Invalid JSON: {e}")
+                return None
             
-            # WEEK 3: Validate LLM output against claim policy
+            # AUDIT FIX: Validate against LLMInsightOutput schema strictly
+            try:
+                from pydantic import ValidationError
+                # Convert TypedDict to Pydantic model for validation
+                validated_output = LLMInsightOutput(
+                    explanation=parsed.get("explanation", ""),
+                    uncertainty=parsed.get("uncertainty", ""),
+                    suggested_next_step=parsed.get("suggested_next_step", ""),
+                )
+            except (ValidationError, TypeError, KeyError) as e:
+                logger.error(
+                    f"LLM output does not match schema: {e}",
+                    extra={
+                        "parsed_keys": list(parsed.keys()),
+                        "error": str(e),
+                    }
+                )
+                return None
+            
+            # AUDIT FIX: Validate claim policy and hard-block violations
             from app.domain.claims.claim_policy import validate_claim_language
-            explanation = parsed.get("explanation", "")
+            explanation = validated_output.get("explanation", "")
             if explanation:
                 is_valid, violations = validate_claim_language(explanation, evidence_grade)
                 if not is_valid:
-                    logger.warning(
-                        f"LLM output violates claim policy: {violations}",
+                    logger.error(
+                        f"LLM output violates claim policy - REJECTED: {violations}",
                         extra={
                             "evidence_grade": evidence_grade.value,
                             "violations": violations,
+                            "explanation": explanation[:200],  # First 200 chars for debugging
                         }
                     )
-                    # WEEK 3: Don't return invalid output - sanitize or reject
-                    # For now, log warning but return (could be made stricter)
-                    parsed["explanation"] = f"[Content adjusted for claim policy compliance] {explanation}"
-                    parsed["claim_policy_violations"] = violations
+                    # AUDIT FIX: Hard-block - return None instead of sanitized output
+                    return None
             
-            return parsed
+            # GOVERNANCE: Apply claim policy enforcement to suggested_next_step
+            suggested = validated_output.get("suggested_next_step", "")
+            if suggested:
+                # Block any language that suggests medical treatments
+                blocked_keywords = [
+                    "take", "prescribe", "medication", "drug", "dose", "dosage",
+                    "treatment", "therapy", "cure", "diagnose", "diagnosis",
+                ]
+                suggested_lower = suggested.lower()
+                if any(keyword in suggested_lower for keyword in blocked_keywords):
+                    logger.error(
+                        f"LLM output contains treatment recommendation - REJECTED",
+                        extra={
+                            "suggested_next_step": suggested[:200],
+                        }
+                    )
+                    return None
+                
+                # GOVERNANCE: Validate suggested_next_step adheres to claim policy
+                is_valid, violations = validate_claim_language(suggested, evidence_grade)
+                if not is_valid:
+                    logger.warning(
+                        f"LLM suggested_next_step violates claim policy: {violations}",
+                        extra={
+                            "evidence_grade": evidence_grade.value,
+                            "violations": violations,
+                            "suggested_next_step": suggested[:200],
+                        }
+                    )
+                    # Downgrade or drop the suggested_next_step
+                    # For now, we'll drop it to be conservative
+                    validated_output["suggested_next_step"] = ""
+            
+            return validated_output
     except json.JSONDecodeError as e:
         logger.error(f"LLM translation failed: Invalid JSON: {e}")
     except Exception as e:

@@ -27,21 +27,23 @@ def upgrade():
             "interventions",
             sa.Column("id", sa.Integer(), primary_key=True),
             sa.Column("user_id", sa.Integer(), nullable=False),
+            sa.Column("key", sa.String(length=128), nullable=False),
             sa.Column("name", sa.String(length=200), nullable=False),
-            sa.Column("intervention_type", sa.String(length=50), nullable=False),
-            sa.Column("description", sa.Text(), nullable=True),
-            sa.Column("dose", sa.String(length=100), nullable=True),
-            sa.Column("dose_unit", sa.String(length=50), nullable=True),
+            sa.Column("category", sa.String(length=100), nullable=True),
+            sa.Column("dosage", sa.String(length=200), nullable=True),
             sa.Column("schedule", sa.String(length=200), nullable=True),
-            sa.Column("timing", sa.String(length=200), nullable=True),
-            sa.Column("contraindications", sa.Text(), nullable=True),
-            sa.Column("evidence_level", sa.String(length=50), nullable=True),
-            sa.Column("citations", sa.Text(), nullable=True),
+            sa.Column("notes", sa.Text(), nullable=True),
+            # Safety fields (canonical)
+            sa.Column("safety_risk_level", sa.String(length=32), nullable=True),
+            sa.Column("safety_evidence_grade", sa.String(length=8), nullable=True),
+            sa.Column("safety_boundary", sa.String(length=32), nullable=True),
+            sa.Column("safety_issues_json", sa.Text(), nullable=True),
+            sa.Column("safety_notes", sa.Text(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
         )
         op.create_index("ix_interventions_user_id", "interventions", ["user_id"])
         op.create_index("ix_interventions_name", "interventions", ["name"])
-        op.create_index("ix_interventions_intervention_type", "interventions", ["intervention_type"])
+        op.create_index("ix_interventions_key", "interventions", ["key"])
     else:
         # Table exists, check and create missing indexes
         existing_indexes = [idx['name'] for idx in inspector.get_indexes("interventions")]
@@ -49,29 +51,46 @@ def upgrade():
             op.create_index("ix_interventions_user_id", "interventions", ["user_id"])
         if "ix_interventions_name" not in existing_indexes:
             op.create_index("ix_interventions_name", "interventions", ["name"])
-        if "ix_interventions_intervention_type" not in existing_indexes:
-            op.create_index("ix_interventions_intervention_type", "interventions", ["intervention_type"])
+        if "ix_interventions_key" not in existing_indexes:
+            op.create_index("ix_interventions_key", "interventions", ["key"])
 
     if "protocols" not in existing_tables:
         op.create_table(
             "protocols",
             sa.Column("id", sa.Integer(), primary_key=True),
             sa.Column("user_id", sa.Integer(), nullable=False),
-            sa.Column("name", sa.String(length=200), nullable=False),
+            sa.Column("title", sa.String(length=200), nullable=False),
+            sa.Column("description", sa.Text(), nullable=True),
+            sa.Column("status", sa.String(length=20), nullable=False, server_default="active"),
             sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
-            sa.Column("plan_json", sa.Text(), nullable=False),
-            sa.Column("stop_rules", sa.Text(), nullable=True),
-            sa.Column("monitoring_metrics", sa.Text(), nullable=True),
+            sa.Column("interventions_json", sa.Text(), nullable=True),
+            sa.Column("safety_summary_json", sa.Text(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=True),
         )
         op.create_index("ix_protocols_user_id", "protocols", ["user_id"])
-        op.create_index("ix_protocols_name", "protocols", ["name"])
+        op.create_index("ix_protocols_title", "protocols", ["title"])
     else:
+        # Table exists in initial schema; evolve it to current shape (idempotent)
+        existing_cols = [c["name"] for c in inspector.get_columns("protocols")]
+        if "title" not in existing_cols:
+            op.add_column("protocols", sa.Column("title", sa.String(length=200), nullable=True))
+        if "description" not in existing_cols:
+            op.add_column("protocols", sa.Column("description", sa.Text(), nullable=True))
+        if "version" not in existing_cols:
+            op.add_column("protocols", sa.Column("version", sa.Integer(), nullable=False, server_default="1"))
+        if "interventions_json" not in existing_cols:
+            op.add_column("protocols", sa.Column("interventions_json", sa.Text(), nullable=True))
+        if "safety_summary_json" not in existing_cols:
+            op.add_column("protocols", sa.Column("safety_summary_json", sa.Text(), nullable=True))
+        if "updated_at" not in existing_cols:
+            op.add_column("protocols", sa.Column("updated_at", sa.DateTime(), nullable=True))
+
         existing_indexes = [idx['name'] for idx in inspector.get_indexes("protocols")]
         if "ix_protocols_user_id" not in existing_indexes:
             op.create_index("ix_protocols_user_id", "protocols", ["user_id"])
-        if "ix_protocols_name" not in existing_indexes:
-            op.create_index("ix_protocols_name", "protocols", ["name"])
+        if "ix_protocols_title" not in existing_indexes:
+            op.create_index("ix_protocols_title", "protocols", ["title"])
 
     if "experiments" not in existing_tables:
         op.create_table(
@@ -90,6 +109,8 @@ def upgrade():
             sa.Column("ended_at", sa.DateTime(), nullable=True),
         )
         op.create_index("ix_experiments_user_id", "experiments", ["user_id"])
+        op.create_index("ix_experiments_intervention_id", "experiments", ["intervention_id"])
+        op.create_index("ix_experiments_protocol_id", "experiments", ["protocol_id"])
         op.create_index("ix_experiments_primary_metric_key", "experiments", ["primary_metric_key"])
     else:
         existing_indexes = [idx['name'] for idx in inspector.get_indexes("experiments")]
@@ -112,10 +133,13 @@ def upgrade():
             sa.Column("timestamp", sa.DateTime(), nullable=False),
         )
         op.create_index("ix_adherence_events_experiment_id", "adherence_events", ["experiment_id"])
+        op.create_index("ix_adherence_events_user_id", "adherence_events", ["user_id"])
     else:
         existing_indexes = [idx['name'] for idx in inspector.get_indexes("adherence_events")]
         if "ix_adherence_events_experiment_id" not in existing_indexes:
             op.create_index("ix_adherence_events_experiment_id", "adherence_events", ["experiment_id"])
+        if "ix_adherence_events_user_id" not in existing_indexes:
+            op.create_index("ix_adherence_events_user_id", "adherence_events", ["user_id"])
 
     if "evaluation_results" not in existing_tables:
         op.create_table(
@@ -124,34 +148,73 @@ def upgrade():
             sa.Column("user_id", sa.Integer(), nullable=False),
             sa.Column("experiment_id", sa.Integer(), nullable=False),
             sa.Column("verdict", sa.String(length=30), nullable=False),
+            sa.Column("metric_key", sa.String(length=100), nullable=False),
             sa.Column("summary", sa.Text(), nullable=False),
+            sa.Column("baseline_mean", sa.Float(), nullable=False),
+            sa.Column("baseline_std", sa.Float(), nullable=False),
+            sa.Column("intervention_mean", sa.Float(), nullable=False),
+            sa.Column("intervention_std", sa.Float(), nullable=False),
+            sa.Column("delta", sa.Float(), nullable=False),
+            sa.Column("percent_change", sa.Float(), nullable=False),
+            sa.Column("effect_size", sa.Float(), nullable=False),
+            sa.Column("coverage", sa.Float(), nullable=False),
+            sa.Column("adherence_rate", sa.Float(), nullable=False),
+            sa.Column("details_json", sa.JSON(), nullable=True),
+            # legacy columns (nullable)
             sa.Column("pre_mean", sa.Float(), nullable=True),
             sa.Column("post_mean", sa.Float(), nullable=True),
-            sa.Column("delta", sa.Float(), nullable=True),
-            sa.Column("effect_size", sa.Float(), nullable=True),
             sa.Column("data_coverage", sa.Float(), nullable=True),
             sa.Column("confidence", sa.Float(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
         )
         op.create_index("ix_evaluation_results_experiment_id", "evaluation_results", ["experiment_id"])
+        op.create_index("ix_evaluation_results_user_id", "evaluation_results", ["user_id"])
+        op.create_index("ix_evaluation_results_metric_key", "evaluation_results", ["metric_key"])
     else:
         existing_indexes = [idx['name'] for idx in inspector.get_indexes("evaluation_results")]
         if "ix_evaluation_results_experiment_id" not in existing_indexes:
             op.create_index("ix_evaluation_results_experiment_id", "evaluation_results", ["experiment_id"])
+        if "ix_evaluation_results_user_id" not in existing_indexes:
+            op.create_index("ix_evaluation_results_user_id", "evaluation_results", ["user_id"])
+        if "ix_evaluation_results_metric_key" not in existing_indexes:
+            op.create_index("ix_evaluation_results_metric_key", "evaluation_results", ["metric_key"])
 
 
 def downgrade():
+    try:
+        op.drop_index("ix_evaluation_results_metric_key", table_name="evaluation_results")
+    except Exception:
+        pass
+    try:
+        op.drop_index("ix_evaluation_results_user_id", table_name="evaluation_results")
+    except Exception:
+        pass
     op.drop_index("ix_evaluation_results_experiment_id", table_name="evaluation_results")
     op.drop_table("evaluation_results")
+    try:
+        op.drop_index("ix_adherence_events_user_id", table_name="adherence_events")
+    except Exception:
+        pass
     op.drop_index("ix_adherence_events_experiment_id", table_name="adherence_events")
     op.drop_table("adherence_events")
     op.drop_index("ix_experiments_primary_metric_key", table_name="experiments")
+    try:
+        op.drop_index("ix_experiments_protocol_id", table_name="experiments")
+    except Exception:
+        pass
+    try:
+        op.drop_index("ix_experiments_intervention_id", table_name="experiments")
+    except Exception:
+        pass
     op.drop_index("ix_experiments_user_id", table_name="experiments")
     op.drop_table("experiments")
-    op.drop_index("ix_protocols_name", table_name="protocols")
+    op.drop_index("ix_protocols_title", table_name="protocols")
     op.drop_index("ix_protocols_user_id", table_name="protocols")
     op.drop_table("protocols")
-    op.drop_index("ix_interventions_intervention_type", table_name="interventions")
+    try:
+        op.drop_index("ix_interventions_key", table_name="interventions")
+    except Exception:
+        pass
     op.drop_index("ix_interventions_name", table_name="interventions")
     op.drop_index("ix_interventions_user_id", table_name="interventions")
     op.drop_table("interventions")

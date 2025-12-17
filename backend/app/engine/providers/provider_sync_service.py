@@ -40,7 +40,10 @@ class ProviderSyncService:
         consent_repo = ConsentRepository(self.db)
         
         if not consent_repo.is_consent_valid(user_id=user_id, provider="whoop"):
-            logger.warning(f"WHOOP sync blocked for user_id={user_id}: consent not valid (missing, revoked, or provider-specific consent not granted)")
+            logger.warning(
+                f"WHOOP sync blocked for user_id={user_id}: consent not valid "
+                f"(missing, revoked, or WHOOP ingestion consent not granted)"
+            )
             consent = consent_repo.get_latest(user_id)
             if consent and consent.revoked_at:
                 return {
@@ -61,7 +64,7 @@ class ProviderSyncService:
                     "provider": "whoop",
                     "inserted": 0,
                     "rejected": 0,
-                    "errors": [{"reason": "consent_required", "message": "User has not consented to data analysis"}]
+                    "errors": [{"reason": "consent_required", "message": "User consent is required for WHOOP data ingestion"}]
                 }
         
         # Generate unique ingestion run ID

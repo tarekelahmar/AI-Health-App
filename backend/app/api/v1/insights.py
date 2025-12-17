@@ -8,16 +8,22 @@ from app.domain.repositories.insight_repository import InsightRepository
 from app.engine.loop_runner import run_loop
 from app.core.database import get_db
 from app.api.auth_mode import get_request_user_id
+from app.api.consent_gate import require_user_and_consent
 from app.api.router_factory import make_v1_router
 
 router = make_v1_router(prefix="/api/v1/insights", tags=["insights"])
 
 @router.get("/feed", response_model=dict)
 def get_insight_feed(
-    user_id: int = Depends(get_request_user_id),
+    user_id: int = Depends(require_user_and_consent),
     limit: int = Query(50),
     db: Session = Depends(get_db)
 ):
+    """
+    Get insights feed for user.
+    
+    Requires: Authentication + valid consent (data analysis scope)
+    """
     repo = InsightRepository(db)
     insights = repo.list_by_user(user_id=user_id, limit=limit)
     return {
@@ -27,11 +33,13 @@ def get_insight_feed(
 
 @router.post("/run", response_model=dict)
 def run_insights(
-    user_id: int = Depends(get_request_user_id),
+    user_id: int = Depends(require_user_and_consent),
     db: Session = Depends(get_db)
 ):
     """
     Run insight generation loop for user.
+    
+    Requires: Authentication + valid consent (data analysis scope)
     
     WEEK 4: Explicit error handling - no silent failures.
     """

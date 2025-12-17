@@ -1,6 +1,7 @@
-import axios from "axios";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+/**
+ * ALPHA WIRING: Use unified API client
+ */
+import apiClient from "./client";
 
 export interface ConsentData {
   understands_not_medical_advice: boolean;
@@ -24,7 +25,7 @@ export interface ConsentResponse {
 
 export async function getConsent(userId: number): Promise<ConsentResponse | null> {
   try {
-    const res = await axios.get(`${API_BASE}/api/v1/consent`, {
+    const res = await apiClient.get("/consent", {
       params: { user_id: userId },
     });
     return res.data;
@@ -37,8 +38,8 @@ export async function getConsent(userId: number): Promise<ConsentResponse | null
 }
 
 export async function createConsent(userId: number, consent: ConsentData): Promise<ConsentResponse> {
-  const res = await axios.post(
-    `${API_BASE}/api/v1/consent`,
+  const res = await apiClient.post(
+    "/consent",
     {
       consent_version: "1.0",
       ...consent,
@@ -51,8 +52,8 @@ export async function createConsent(userId: number, consent: ConsentData): Promi
 }
 
 export async function completeOnboarding(userId: number): Promise<ConsentResponse> {
-  const res = await axios.post(
-    `${API_BASE}/api/v1/consent/complete-onboarding`,
+  const res = await apiClient.post(
+    "/consent/complete-onboarding",
     {},
     {
       params: { user_id: userId },

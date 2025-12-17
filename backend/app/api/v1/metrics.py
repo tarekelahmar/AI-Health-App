@@ -59,12 +59,19 @@ def get_metric_series(
             baseline = MetricBaseline(
                 mean=baseline_model.mean,
                 std=baseline_model.std,
+                available=True,
+                reason=None,
             )
         else:
-            # Return zero baseline if not found
-            baseline = MetricBaseline(mean=0.0, std=0.0)
+            # AUDIT FIX: Return null/unknown instead of misleading 0/0
+            baseline = MetricBaseline(
+                mean=None,
+                std=None,
+                available=False,
+                reason="baseline_not_computed",
+            )
     except Exception as e:
-        # WEEK 4: Log error instead of silently ignoring
+        # AUDIT FIX: Log error and return unavailable state
         import logging
         logger = logging.getLogger(__name__)
         logger.warning(
@@ -75,8 +82,13 @@ def get_metric_series(
                 "error": str(e),
             },
         )
-        # If baselines table doesn't exist, return zero baseline
-        baseline = MetricBaseline(mean=0.0, std=0.0)
+        # AUDIT FIX: Return unavailable state instead of 0/0
+        baseline = MetricBaseline(
+            mean=None,
+            std=None,
+            available=False,
+            reason=f"query_failed: {str(e)[:100]}",
+        )
     
     return MetricSeriesResponse(
         metric_key=metric_key,

@@ -25,6 +25,7 @@ from app.engine.providers.provider_sync_service import ProviderSyncService
 
 # Step Q dependency:
 from app.api.auth_mode import get_request_user_id
+from app.api.consent_gate import require_user_and_consent_for_whoop
 from app.api.router_factory import make_v1_router
 
 logger = logging.getLogger(__name__)
@@ -144,12 +145,17 @@ def whoop_callback(
         expires_at=compute_expires_at(token.get("expires_in")),
     )
     logger.info(f"WHOOP connected successfully for user_id={user_id}")
-    return ProviderCallbackResponse(provider="whoop", connected=True)
+    
+    # ALPHA WIRING: Redirect to frontend insights page after successful connection
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"{frontend_url}/insights?connected=whoop")
 
 
 @router.post("/sync", response_model=ProviderSyncResponse)
 def whoop_sync(
-    user_id: int = Depends(get_request_user_id),
+    # Provider-scoped consent gate (fail-closed with machine-readable reason header)
+    user_id: int = Depends(require_user_and_consent_for_whoop),
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):

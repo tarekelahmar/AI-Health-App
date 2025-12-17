@@ -27,7 +27,27 @@ Base = declarative_base()
 
 
 def init_db():
-    """MVP-safe: create missing tables"""
+    """
+    Initialize database schema.
+    
+    SCHEMA GOVERNANCE: Only creates tables in dev mode.
+    In staging/production, schema must be managed via Alembic migrations only.
+    """
+    from app.config.environment import get_env_mode, is_production, is_staging
+    
+    env_mode = get_env_mode()
+    
+    # SCHEMA GOVERNANCE: Disable create_all() in staging/production
+    if is_production() or is_staging():
+        logger.warning(
+            "init_db() called in %s mode - create_all() is disabled. "
+            "Schema must be managed via Alembic migrations only.",
+            env_mode.value
+        )
+        return
+    
+    # Only in dev mode: create missing tables (for convenience)
+    logger.info("Running init_db() in dev mode - creating missing tables")
     # Import all models to ensure they are registered with Base.metadata
     from app.domain.models.baseline import Baseline
     from app.domain.models.health_data_point import HealthDataPoint

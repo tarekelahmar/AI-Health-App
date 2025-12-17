@@ -6,9 +6,10 @@ Expose GET /api/v1/system/status returning ENV_MODE, AUTH_MODE, PROVIDERS_ENABLE
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.core.database import get_db
 from app.config.environment import get_env_mode, get_mode_config, is_production, is_staging, is_dev
@@ -16,6 +17,9 @@ from app.api.router_factory import make_v1_router
 from app.api.auth_mode import get_request_user_id
 
 router = make_v1_router(prefix="/api/v1/system", tags=["system"])
+# Public (unauthenticated) router for liveness checks (CI/K8s/etc).
+# Must not leak environment/auth posture details.
+public_router = make_v1_router(prefix="/api/v1/system", tags=["system"], public=True)
 
 
 class SystemStatusResponse(BaseModel):
@@ -26,6 +30,27 @@ class SystemStatusResponse(BaseModel):
     safety_status: str
     logging_level: str
     enable_llm: bool
+
+
+class HealthzResponse(BaseModel):
+    status: str
+
+
+@public_router.get("/healthz", response_model=HealthzResponse)
+def healthz(db: Session = Depends(get_db)):
+    """
+    Minimal liveness endpoint (no auth).
+    
+    Security posture:
+    - Returns only "ok" (no ENV_MODE/AUTH_MODE leakage).
+    - Used by CI smoke tests and typical deployment liveness probes.
+    """
+    try:
+        # Minimal DB ping; if DB is unavailable, treat as unhealthy.
+        db.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="unhealthy")
+    return HealthzResponse(status="ok")
 
 
 @router.get("/status", response_model=SystemStatusResponse)

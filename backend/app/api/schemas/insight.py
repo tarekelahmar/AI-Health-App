@@ -3,6 +3,7 @@ from typing import Optional, Dict, Literal, Union
 from pydantic import BaseModel, Field
 
 from app.api.schemas.confidence import InsightUncertaintyUX
+from app.domain.health_domains import HealthDomainKey
 
 InsightStatus = Literal["detected", "evaluated", "suggested"]
 
@@ -22,6 +23,8 @@ class InsightResponse(BaseModel):
     title: str
     summary: str
     metric_key: str
+    # Pure metadata: semantic domain of the primary signal (safe default for legacy/unknown).
+    domain_key: Optional[HealthDomainKey] = None
     confidence: float = Field(ge=0.0, le=1.0)
     status: InsightStatus
     evidence: Dict[str, Union[float, int, None]]

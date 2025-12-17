@@ -11,6 +11,7 @@ from app.api.schemas.experiments import ExperimentStart, ExperimentStop, Experim
 from app.domain.repositories.experiment_repository import ExperimentRepository
 from app.domain.repositories.intervention_repository import InterventionRepository
 from app.api.auth_mode import get_request_user_id
+from app.api.consent_gate import require_user_and_consent_for_experiments
 from app.api.router_factory import make_v1_router
 
 # SECURITY FIX (Week 1): Use make_v1_router to enforce auth
@@ -20,11 +21,13 @@ router = make_v1_router(prefix="/api/v1/experiments", tags=["experiments"])
 @router.post("/start", response_model=ExperimentOut)
 def start_experiment(
     payload: ExperimentStart,
-    user_id: int = Depends(get_request_user_id),
+    user_id: int = Depends(require_user_and_consent_for_experiments),
     db: Session = Depends(get_db)
 ):
     """
     Start a new experiment.
+    
+    Requires: Authentication + valid consent (experiments scope)
     
     SECURITY FIX (Week 1): Override payload.user_id with authenticated user_id to prevent spoofing.
     """

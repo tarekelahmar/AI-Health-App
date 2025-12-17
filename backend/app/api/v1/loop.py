@@ -14,6 +14,7 @@ from app.domain.repositories.loop_decision_repository import LoopDecisionReposit
 
 from app.domain.repositories.evaluation_repository import EvaluationRepository
 from app.api.auth_mode import get_request_user_id
+from app.api.consent_gate import require_user_and_consent
 from app.api.router_factory import make_v1_router
 
 from app.engine.loop_orchestrator import decide_next_step
@@ -25,7 +26,7 @@ router = make_v1_router(prefix="/api/v1/loop", tags=["loop"])
 @router.post("/run/{evaluation_id}")
 def run_loop_decision(
     evaluation_id: int,
-    user_id: int = Depends(get_request_user_id),
+    user_id: int = Depends(require_user_and_consent),
     db: Session = Depends(get_db)
 ):
     """

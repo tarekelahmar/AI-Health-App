@@ -10,6 +10,9 @@ import { Insight } from '../types/Insight';
 import { whoopStatus } from '../api/providers';
 import { fetchMetricSeries } from '../api/metrics';
 import apiClient from '../api/client';
+import { fetchHealthDomains } from '../api/healthDomains';
+import { HealthDomainInfo } from '../types/HealthDomain';
+import { DomainMeta } from '../components/DomainMeta';
 
 type SilenceState = 
   | 'no_provider'
@@ -26,6 +29,7 @@ export default function InsightsFeedPage() {
   const [runningLoop, setRunningLoop] = useState(false);
   const [silenceState, setSilenceState] = useState<SilenceState>(null);
   const [showWhyExplanation, setShowWhyExplanation] = useState(false);
+  const [domainsByKey, setDomainsByKey] = useState<Record<string, HealthDomainInfo>>({});
 
   useEffect(() => {
     if (!userId) {
@@ -35,6 +39,22 @@ export default function InsightsFeedPage() {
 
     loadInsights();
   }, [userId, navigate]);
+
+  // Load static domain explanations (read-only) once.
+  useEffect(() => {
+    fetchHealthDomains()
+      .then((res) => {
+        const map: Record<string, HealthDomainInfo> = {};
+        for (const d of res.items || []) {
+          map[d.key] = d;
+        }
+        setDomainsByKey(map);
+      })
+      .catch((e) => {
+        // Non-blocking: domain explanation is optional UI.
+        console.warn("Failed to load health domains:", e);
+      });
+  }, []);
 
   const determineSilenceState = async (userId: number): Promise<SilenceState> => {
     // Check if provider is connected
@@ -180,6 +200,14 @@ export default function InsightsFeedPage() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-700 mb-2">{insight.summary}</p>
+
+                {/* Domain visibility + explanation (read-only, metadata only) */}
+                {insight.domain_key ? (
+                  <DomainMeta
+                    domainKey={insight.domain_key}
+                    domainInfo={domainsByKey[insight.domain_key] || null}
+                  />
+                ) : null}
                 
                 {/* Confidence / Uncertainty */}
                 {insight.confidence !== undefined && (

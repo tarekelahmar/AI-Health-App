@@ -18,6 +18,8 @@ export interface Insight {
   title: string;
   summary: string;
   metric_key: string;
+  // Pure metadata: semantic domain key (may be missing/null for legacy rows).
+  domain_key?: string | null;
   confidence: number; // 0..1
   status: InsightStatus;
   evidence: InsightEvidence;

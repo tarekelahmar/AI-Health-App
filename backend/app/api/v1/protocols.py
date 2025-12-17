@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.api.schemas.protocols import ProtocolCreate, ProtocolResponse
 from app.domain.repositories.protocol_repository import ProtocolRepository
 from app.api.auth_mode import get_request_user_id
+from app.api.consent_gate import require_user_and_consent_for_experiments
 from app.api.router_factory import make_v1_router
 
 router = make_v1_router(prefix="/api/v1/protocols", tags=["protocols"])
@@ -13,9 +14,14 @@ router = make_v1_router(prefix="/api/v1/protocols", tags=["protocols"])
 @router.post("", response_model=ProtocolResponse)
 def create_protocol(
     payload: ProtocolCreate,
-    user_id: int = Depends(get_request_user_id),
+    user_id: int = Depends(require_user_and_consent_for_experiments),
     db: Session = Depends(get_db),
 ):
+    """
+    Create a new protocol for user.
+    
+    Requires: Authentication + valid consent (experiments scope)
+    """
     # SECURITY: Override payload.user_id with authenticated user_id
     repo = ProtocolRepository(db)
     row = repo.create_with_safety_summary(

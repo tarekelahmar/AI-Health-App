@@ -46,20 +46,21 @@ class InsightSuppressionService:
         # Check for recent duplicate insights
         recent_duplicate = self._find_recent_duplicate(user_id, insight, today)
         if recent_duplicate:
-            days_since = (today - recent_duplicate.created_at).days
+            # Insight model uses generated_at (not created_at)
+            dup_ts = getattr(recent_duplicate, "generated_at", None) or getattr(recent_duplicate, "created_at", None)
+            if dup_ts is None:
+                return True, "Duplicate check failed (missing timestamp)"
+            days_since = (today - dup_ts).days
             if days_since < self.MIN_DAYS_BETWEEN_REPEATS:
                 if insight.confidence_score < self.MIN_CONFIDENCE_FOR_REPEAT:
                     return True, f"Low-confidence repeat (confidence={insight.confidence_score:.2f}) within {days_since} days"
                 # High confidence repeats are allowed after MIN_DAYS_BETWEEN_REPEATS
                 return False, None
-        
-        # Check daily cap
-        today_count = self._count_today_insights(user_id, today)
-        if today_count >= self.MAX_DAILY_INSIGHTS:
-            # Suppress lowest confidence insights first
-            if insight.confidence_score < 0.6:
-                return True, f"Daily cap reached ({today_count} insights today), suppressing low-confidence"
-        
+
+        # NOTE: Daily cap is enforced as a batch in loop_runner (top-N by confidence),
+        # so we don't do per-item cap checks here (it would be order-dependent and
+        # would count newly-created insights in the same run).
+
         return False, None
     
     def _find_recent_duplicate(
@@ -69,30 +70,52 @@ class InsightSuppressionService:
         today: datetime,
     ) -> Optional[Insight]:
         """Find a recent duplicate insight"""
-        # Check for insights with same metric_key and similar title/description
-        metric_key = getattr(insight, "metric_key", None) or (
-            insight.metadata_json.get("metric_key") if isinstance(insight.metadata_json, dict) else None
-        )
+        # Metric key is stored in metadata_json for this model
+        metric_key: Optional[str] = None
+        try:
+            meta = insight.metadata_json
+            if isinstance(meta, dict):
+                metric_key = meta.get("metric_key")
+            elif isinstance(meta, str) and meta:
+                import json
+                metric_key = json.loads(meta).get("metric_key")
+        except Exception:
+            metric_key = None
         
         if not metric_key:
             return None
         
-        # Look for recent insights with same metric
+        # Look for recent insights within window; filter by metric_key in metadata_json (Python-side)
         cutoff = today - timedelta(days=self.MIN_DAYS_BETWEEN_REPEATS)
         
-        recent = (
+        candidates = (
             self.db.query(Insight)
             .filter(
                 Insight.user_id == user_id,
-                Insight.metric_key == metric_key,
-                Insight.created_at >= cutoff,
+                Insight.generated_at >= cutoff,
                 Insight.id != insight.id,  # Exclude self
             )
-            .order_by(Insight.created_at.desc())
-            .first()
+            .order_by(Insight.generated_at.desc())
+            .limit(50)
+            .all()
         )
-        
-        return recent
+
+        def _extract_metric_key(m: object) -> Optional[str]:
+            try:
+                meta = getattr(m, "metadata_json", None)
+                if isinstance(meta, dict):
+                    return meta.get("metric_key")
+                if isinstance(meta, str) and meta:
+                    import json
+                    return json.loads(meta).get("metric_key")
+            except Exception:
+                return None
+            return None
+
+        for cand in candidates:
+            if _extract_metric_key(cand) == metric_key:
+                return cand
+        return None
     
     def _count_today_insights(self, user_id: int, today: datetime) -> int:
         """Count insights surfaced today"""
@@ -103,8 +126,8 @@ class InsightSuppressionService:
             self.db.query(Insight)
             .filter(
                 Insight.user_id == user_id,
-                Insight.created_at >= start_of_day,
-                Insight.created_at < end_of_day,
+                Insight.generated_at >= start_of_day,
+                Insight.generated_at < end_of_day,
             )
             .count()
         )

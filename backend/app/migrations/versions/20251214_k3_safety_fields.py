@@ -10,143 +10,55 @@ import sqlalchemy as sa
 
 # NOTE: If you have an existing head revision, set down_revision accordingly.
 revision = "k3_safety_fields"
-down_revision = None
+down_revision = "20251214120000"  # Fixed: points to add_safety_fields
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    # interventions: add safety columns if missing
-    # Use batch_alter_table if supported, otherwise try direct alter
-    try:
-        with op.batch_alter_table("interventions") as batch:
-            try:
-                batch.add_column(sa.Column("intervention_key", sa.String(length=128), nullable=True))
-            except Exception:
-                pass  # Column may already exist
-            try:
-                batch.add_column(sa.Column("safety_risk_level", sa.String(length=32), nullable=True))
-            except Exception:
-                pass
-            try:
-                batch.add_column(sa.Column("safety_evidence_grade", sa.String(length=8), nullable=True))
-            except Exception:
-                pass
-            try:
-                batch.add_column(sa.Column("safety_boundary", sa.String(length=32), nullable=True))
-            except Exception:
-                pass
-            try:
-                batch.add_column(sa.Column("safety_blocked", sa.Boolean(), nullable=False, server_default=sa.text("false")))
-            except Exception:
-                pass
-            try:
-                batch.add_column(sa.Column("safety_json", sa.Text(), nullable=True))
-            except Exception:
-                pass
-    except Exception:
-        # Fallback: direct alter if batch not supported
-        try:
-            op.add_column("interventions", sa.Column("intervention_key", sa.String(length=128), nullable=True))
-        except Exception:
-            pass
-        try:
-            op.add_column("interventions", sa.Column("safety_risk_level", sa.String(length=32), nullable=True))
-        except Exception:
-            pass
-        try:
-            op.add_column("interventions", sa.Column("safety_evidence_grade", sa.String(length=8), nullable=True))
-        except Exception:
-            pass
-        try:
-            op.add_column("interventions", sa.Column("safety_boundary", sa.String(length=32), nullable=True))
-        except Exception:
-            pass
-        try:
-            op.add_column("interventions", sa.Column("safety_blocked", sa.Boolean(), nullable=False, server_default=sa.text("false")))
-        except Exception:
-            pass
-        try:
-            op.add_column("interventions", sa.Column("safety_json", sa.Text(), nullable=True))
-        except Exception:
-            pass
+    """
+    Canonical K3 safety fields.
+    
+    NOTE: This migration is idempotent. It only ensures the canonical safety columns
+    that are represented in the current domain models exist.
+    """
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
 
-    # protocols: ensure protocol_json exists
-    try:
-        with op.batch_alter_table("protocols") as batch:
-            try:
-                batch.add_column(sa.Column("protocol_json", sa.Text(), nullable=True))
-            except Exception:
-                pass
-    except Exception:
-        try:
-            op.add_column("protocols", sa.Column("protocol_json", sa.Text(), nullable=True))
-        except Exception:
-            pass
+    if "interventions" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("interventions")]
+        if "safety_risk_level" not in cols:
+            op.add_column("interventions", sa.Column("safety_risk_level", sa.String(length=32), nullable=True))
+        if "safety_evidence_grade" not in cols:
+            op.add_column("interventions", sa.Column("safety_evidence_grade", sa.String(length=8), nullable=True))
+        if "safety_boundary" not in cols:
+            op.add_column("interventions", sa.Column("safety_boundary", sa.String(length=32), nullable=True))
+        if "safety_issues_json" not in cols:
+            op.add_column("interventions", sa.Column("safety_issues_json", sa.Text(), nullable=True))
+        if "safety_notes" not in cols:
+            op.add_column("interventions", sa.Column("safety_notes", sa.Text(), nullable=True))
+
+    if "protocols" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("protocols")]
+        if "safety_summary_json" not in cols:
+            op.add_column("protocols", sa.Column("safety_summary_json", sa.Text(), nullable=True))
 
 
 def downgrade():
+    # Best-effort drops
     try:
-        with op.batch_alter_table("protocols") as batch:
-            try:
-                batch.drop_column("protocol_json")
-            except Exception:
-                pass
+        op.drop_column("protocols", "safety_summary_json")
     except Exception:
+        pass
+    for col in [
+        "safety_notes",
+        "safety_issues_json",
+        "safety_boundary",
+        "safety_evidence_grade",
+        "safety_risk_level",
+    ]:
         try:
-            op.drop_column("protocols", "protocol_json")
-        except Exception:
-            pass
-
-    try:
-        with op.batch_alter_table("interventions") as batch:
-            try:
-                batch.drop_column("safety_json")
-            except Exception:
-                pass
-            try:
-                batch.drop_column("safety_blocked")
-            except Exception:
-                pass
-            try:
-                batch.drop_column("safety_boundary")
-            except Exception:
-                pass
-            try:
-                batch.drop_column("safety_evidence_grade")
-            except Exception:
-                pass
-            try:
-                batch.drop_column("safety_risk_level")
-            except Exception:
-                pass
-            try:
-                batch.drop_column("intervention_key")
-            except Exception:
-                pass
-    except Exception:
-        try:
-            op.drop_column("interventions", "safety_json")
-        except Exception:
-            pass
-        try:
-            op.drop_column("interventions", "safety_blocked")
-        except Exception:
-            pass
-        try:
-            op.drop_column("interventions", "safety_boundary")
-        except Exception:
-            pass
-        try:
-            op.drop_column("interventions", "safety_evidence_grade")
-        except Exception:
-            pass
-        try:
-            op.drop_column("interventions", "safety_risk_level")
-        except Exception:
-            pass
-        try:
-            op.drop_column("interventions", "intervention_key")
+            op.drop_column("interventions", col)
         except Exception:
             pass
 

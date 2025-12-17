@@ -62,9 +62,9 @@ def _get_user_from_token(token: str):
         pass
 
     # Optional integration path:
-    # If you have decode_access_token() -> dict with "sub" = user_id
+    # Decode JWT -> {"sub": user_id} using python-jose (installed in requirements).
     try:
-        import jwt
+        from jose import jwt  # type: ignore
         from app.config.settings import get_settings
         from app.domain.repositories.user_repository import UserRepository  # type: ignore
         from app.core.database import SessionLocal  # type: ignore
@@ -72,6 +72,7 @@ def _get_user_from_token(token: str):
         settings = get_settings()
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = int(payload.get("sub"))
+
         db = SessionLocal()
         try:
             repo = UserRepository(db)
