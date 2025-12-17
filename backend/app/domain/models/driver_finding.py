@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Index
-from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
 

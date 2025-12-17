@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import Optional
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, Text, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, Text, Index, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -26,11 +25,13 @@ class Narrative(Base):
     summary = Column(Text, nullable=False, default="")
 
     # Structured content for UI
-    key_points_json = Column(JSONB, nullable=False, default=list)   # list[str] or list[dict]
-    drivers_json = Column(JSONB, nullable=False, default=list)      # list[{metric_key, why, evidence}]
-    actions_json = Column(JSONB, nullable=False, default=list)      # list[{action, rationale, safety}]
-    risks_json = Column(JSONB, nullable=False, default=list)        # list[{risk, guidance}]
-    metadata_json = Column(JSONB, nullable=False, default=dict)     # any extra (counts, coverage, etc.)
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    # JSON works for both PostgreSQL and SQLite
+    key_points_json = Column(JSON, nullable=False, default=list)   # list[str] or list[dict]
+    drivers_json = Column(JSON, nullable=False, default=list)      # list[{metric_key, why, evidence}]
+    actions_json = Column(JSON, nullable=False, default=list)      # list[{action, rationale, safety}]
+    risks_json = Column(JSON, nullable=False, default=list)        # list[{risk, guidance}]
+    metadata_json = Column(JSON, nullable=False, default=dict)     # any extra (counts, coverage, etc.)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     is_pinned = Column(Boolean, nullable=False, default=False)

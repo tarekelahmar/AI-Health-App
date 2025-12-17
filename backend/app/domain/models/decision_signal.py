@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Index, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, Index, Boolean, JSON
 
 from app.core.database import Base
 
@@ -33,11 +32,12 @@ class DecisionSignal(Base):
     last_confirmed_at = Column(DateTime, nullable=True)  # When this signal was last confirmed
 
     # Confidence explanation (why confidence is what it is)
-    confidence_explanation_json = Column(JSONB, nullable=True)  # {data_coverage, adherence_rate, effect_size, consistency, confounder_risk}
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    confidence_explanation_json = Column(JSON, nullable=True)  # {data_coverage, adherence_rate, effect_size, consistency, confounder_risk}
 
     # Claim boundary enforcement
-    allowed_actions = Column(JSONB, nullable=True)  # ["monitor", "suggest_experiment", "continue_protocol"]
-    language_constraints = Column(JSONB, nullable=True)  # {must_use: ["associated with"], must_not_use: ["causes", "proves"]}
+    allowed_actions = Column(JSON, nullable=True)  # ["monitor", "suggest_experiment", "continue_protocol"]
+    language_constraints = Column(JSON, nullable=True)  # {must_use: ["associated with"], must_not_use: ["causes", "proves"]}
 
     # Suppression state
     is_suppressed = Column(Boolean, nullable=False, default=False)

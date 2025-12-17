@@ -1,6 +1,5 @@
 """Legacy HealthDataPoint model - kept for backward compatibility"""
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, JSON
 from datetime import datetime
 from app.core.database import Base
 
@@ -18,6 +17,7 @@ class HealthDataPoint(Base):
     
     # STEP R: Provenance & Quality
     data_provenance_id = Column(Integer, ForeignKey("data_provenance.id"), nullable=True)
-    quality_score = Column(JSONB, nullable=True)  # Full quality score breakdown
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    quality_score = Column(JSON, nullable=True)  # Full quality score breakdown
     is_flagged = Column(Boolean, nullable=False, default=False)  # Quality score < 0.6
 
