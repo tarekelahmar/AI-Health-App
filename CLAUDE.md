@@ -316,9 +316,9 @@ Before adding any new capabilities, we should:
 - [ ] Achieve 80%+ coverage on critical paths
 
 ### Verify Governance Pipeline
-- [ ] Write tests that prove claim policy enforcement
-- [ ] Write tests that prove safety gates fire correctly
-- [ ] Write tests that prove suppression works
+- [x] Write tests that prove claim policy enforcement
+- [x] Write tests that prove safety gates fire correctly
+- [x] Write tests that prove suppression works
 
 ---
 
