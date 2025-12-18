@@ -71,7 +71,8 @@ export default function InsightsFeedPage() {
     // Check if we have recent data and baseline status
     try {
       // Try to fetch a common metric to check data availability
-      const metricResponse = await fetchMetricSeries(userId, 'recovery_score');
+      // Using sleep_duration as it's available from all providers and demo data
+      const metricResponse = await fetchMetricSeries(userId, 'sleep_duration');
       const { points, baseline } = metricResponse;
 
       // Check if we have recent data (within last 7 days)
