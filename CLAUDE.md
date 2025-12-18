@@ -298,27 +298,39 @@ Phase 7+: Advanced Features (Differentiation)
 
 ---
 
-## Phase 0: Stabilization (Current Focus)
+## Phase 0: Stabilization ✅ COMPLETE
 
-Before adding any new capabilities, we should:
+Phase 0 technical debt has been addressed:
 
-### Fix Technical Debt
-- [ ] Resolve the guardrails import hack in `loop_runner.py`
-- [ ] Unify the metric registries (currently split across 4 files)
-- [ ] Add missing database indexes
+### Fix Technical Debt ✅
+- [x] Resolve the guardrails import hack in `loop_runner.py`
+- [x] Unify API client (all modules now use `api/client.ts`)
+- [x] Add missing database indexes
+- [x] Remove unused Zustand dependency (or implement if kept)
 
-### Establish Testing Foundation
+### Establish Testing Foundation ✅
 - [x] Golden Path E2E test (validates complete user flow)
 - [x] Fix conftest.py for proper test isolation
 - [x] Fix SQLite compatibility (JSON vs JSONB)
-- [ ] Set up frontend testing (vitest + React Testing Library)
-- [ ] Create E2E test framework (Playwright)
-- [ ] Achieve 80%+ coverage on critical paths
+- [x] Set up frontend testing (vitest + React Testing Library)
+- [x] Create governance component tests (55 tests passing)
+- [ ] Create E2E test framework (Playwright) - Phase 1
+- [ ] Achieve 80%+ coverage on critical paths - Ongoing
 
-### Verify Governance Pipeline
+### Verify Governance Pipeline ✅
 - [x] Write tests that prove claim policy enforcement
 - [x] Write tests that prove safety gates fire correctly
 - [x] Write tests that prove suppression works
+
+---
+
+## Current Phase: Phase 1 (Data Foundation)
+
+See **ROADMAP.md** for detailed implementation plan with:
+- 6 phases of incremental development
+- Specific deliverables and acceptance criteria
+- Code examples and file structures
+- Claude review checkpoints
 
 ---
 
@@ -413,5 +425,41 @@ When starting a new session:
 
 ---
 
+## Working with Cursor + Claude
+
+This project uses a hybrid workflow:
+- **Cursor**: Day-to-day implementation, code writing, debugging
+- **Claude**: Strategic direction, code reviews, architectural decisions
+
+### When to Consult Claude
+
+1. **Phase transitions**: Before starting a new phase, review the plan
+2. **Architectural decisions**: When multiple approaches exist
+3. **Code reviews**: After completing a phase's deliverables
+4. **Safety/governance changes**: Any modifications to safety gates, claim policies, or consent
+5. **Stuck points**: When Cursor implementation isn't working
+
+### Code Review Request Template
+
+```
+Phase: [1-6]
+Completed: [list of deliverables]
+Files changed: [key files]
+Design decisions: [choices made]
+Tests passing: [yes/no]
+Questions: [specific questions]
+```
+
+### Key Documents
+
+| Document | Purpose |
+|----------|---------|
+| `CLAUDE.md` | Project context, vision, constraints |
+| `ROADMAP.md` | Detailed implementation plan |
+| `backend/tests/e2e/` | E2E test examples |
+| `frontend/src/test/` | Frontend test setup |
+
+---
+
 *Last updated: December 2024*
-*Current phase: Phase 0 (Stabilization)*
+*Current phase: Phase 1 (Data Foundation)*
