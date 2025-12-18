@@ -459,7 +459,7 @@ def test_10_suppression_daily_cap_enforced_low_conf_suppressed_first(app_and_db,
     try:
         from app.domain.models.baseline import Baseline  # noqa: WPS433
         # Use real metric keys from registry to satisfy invariants
-        from app.domain.metric_registry import METRICS as REGISTRY  # noqa: WPS433
+        from app.domain.metrics.registry import METRIC_REGISTRY as REGISTRY  # noqa: WPS433
         metric_keys = list(REGISTRY.keys())[:15]
         for mk in metric_keys:
             db.add(Baseline(user_id=1, metric_type=mk, mean=100.0, std=10.0, window_days=30))
@@ -587,7 +587,14 @@ def test_12_migration_integrity_fresh_db(tmp_path):
     backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     env = os.environ.copy()
     env["PYTHONPATH"] = backend_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    subprocess.check_call(["alembic", "-c", "alembic.ini", "upgrade", "head"], cwd=backend_root, env=env)
+    # Use the current Python interpreter's Alembic module instead of relying on a
+    # global 'alembic' binary on PATH. This makes the test robust in CI and when
+    # pytest is invoked via a venv without activation.
+    subprocess.check_call(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+        cwd=backend_root,
+        env=env,
+    )
 
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     insp = inspect(engine)

@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.domain.metric_registry import METRICS, get_metric_spec
+from app.domain.metrics.registry import METRIC_REGISTRY as METRICS, get_metric_spec
 
 logger = logging.getLogger(__name__)
 

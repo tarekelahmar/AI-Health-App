@@ -18,9 +18,13 @@ class HealthDataPoint(Base):
 
     # STEP R: Provenance & Quality
     data_provenance_id = Column(Integer, ForeignKey("data_provenance.id"), nullable=True)
-    # Using JSON instead of JSONB for SQLite compatibility in tests
+    # Using JSON instead of JSONB for SQLite compatibility in tests.
+    # For provider ingestions this stores a structured quality report dict.
+    # For manual ingestions, Phase 1.3 may store a minimal inline score/flags.
     quality_score = Column(JSON, nullable=True)  # Full quality score breakdown
     is_flagged = Column(Boolean, nullable=False, default=False)  # Quality score < 0.6
+    # Phase 1.3: explicit validity flag for per-row range checks.
+    validity = Column(Boolean, nullable=True)
 
     # Performance: composite indexes aligned with hot query patterns
     # - (user_id, metric_type, timestamp): per-metric time series, baselines, loop runner

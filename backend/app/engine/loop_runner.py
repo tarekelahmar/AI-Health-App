@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.health_domains import domain_for_signal
 from app.domain.metric_policies import get_metric_policy
-from app.domain.metric_registry import METRICS
+from app.domain.metrics.registry import METRIC_REGISTRY, get_metric_spec
 from app.domain.models.baseline import Baseline
 from app.domain.repositories.audit_repository import AuditRepository
 from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
@@ -29,6 +29,9 @@ from app.engine.signal_builder import fetch_recent_values
 
 logger = logging.getLogger(__name__)
 
+# Local alias so validation tests can still monkeypatch the metric set.
+METRICS = METRIC_REGISTRY
+
 
 def run_loop(db: Session, user_id: int) -> dict:
     """
@@ -45,11 +48,22 @@ def run_loop(db: Session, user_id: int) -> dict:
     # 0) Safety gate - check for red flags BEFORE normal detectors
     latest_metrics = {}
     for metric_key in METRICS.keys():
+        # Phase 1.1: pull canonical spec and filter raw values using registry bounds
+        try:
+            spec = get_metric_spec(metric_key)
+        except KeyError:
+            # Governance: skip unknown/removed metrics rather than failing the loop.
+            continue
+
         values = fetch_recent_values(
             db=db, user_id=user_id, metric_key=metric_key, window_days=3
         )
-        if values:
-            latest_metrics[metric_key] = float(sum(values) / len(values))
+        validated_values = [
+            v for v in values
+            if spec.valid_range[0] <= v <= spec.valid_range[1]
+        ]
+        if validated_values:
+            latest_metrics[metric_key] = float(sum(validated_values) / len(validated_values))
 
     # Wire symptom tags from check-ins and symptoms into safety gate
     symptom_tags = []
@@ -126,6 +140,12 @@ def run_loop(db: Session, user_id: int) -> dict:
         existing_today_pre_run = 0
 
     for metric_key in METRICS.keys():
+        # Phase 1.1: centralize metric metadata + bounds
+        try:
+            spec = get_metric_spec(metric_key)
+        except KeyError:
+            # If a metric was removed from the registry, skip it safely.
+            continue
         # Get metric policy
         try:
             policy = get_metric_policy(metric_key)
@@ -157,9 +177,14 @@ def run_loop(db: Session, user_id: int) -> dict:
             continue
 
         # 1) Guardrails check (uses last 5 values from change window)
-        recent_values_for_guard = fetch_recent_values(
+        raw_values_for_guard = fetch_recent_values(
             db=db, user_id=user_id, metric_key=metric_key, window_days=change_window_days
-        )[-5:]
+        )
+        validated_values_for_guard = [
+            v for v in raw_values_for_guard
+            if spec.valid_range[0] <= v <= spec.valid_range[1]
+        ]
+        recent_values_for_guard = validated_values_for_guard[-5:]
         guardrail = apply_guardrails(metric_key=metric_key, values=recent_values_for_guard)
         if guardrail:
             dk = domain_for_signal(metric_key)
@@ -183,9 +208,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 2) Change detection (7d)
         if "change" in policy.allowed_insights and policy.change:
-            change_values = fetch_recent_values(
+            raw_change_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=change_window_days
             )
+
+            change_values = [
+                v for v in raw_change_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(change_values) < 5:
@@ -332,9 +362,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 3) Trend detection (14d)
         if "trend" in policy.allowed_insights and policy.trend:
-            trend_values = fetch_recent_values(
+            raw_trend_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=trend_window_days
             )
+
+            trend_values = [
+                v for v in raw_trend_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(trend_values) < 7:
@@ -439,9 +474,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 4) Instability detection (14d)
         if "instability" in policy.allowed_insights and policy.instability:
-            inst_values = fetch_recent_values(
+            raw_inst_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=instability_window_days
             )
+
+            inst_values = [
+                v for v in raw_inst_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(inst_values) < 7:

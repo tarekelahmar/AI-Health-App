@@ -14,7 +14,7 @@ from app.domain.models.adherence_event import AdherenceEvent
 from app.domain.models.health_data_point import HealthDataPoint
 from app.domain.models.driver_finding import DriverFinding
 from app.domain.repositories.driver_finding_repository import DriverFindingRepository
-from app.domain.metric_registry import METRICS, get_metric_spec
+from app.domain.metrics.registry import METRIC_REGISTRY as METRICS, get_metric_spec
 from app.engine.attribution.guardrails import apply_attribution_guardrails, filter_attributions_by_guardrails
 
 logger = logging.getLogger(__name__)

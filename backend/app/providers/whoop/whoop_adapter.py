@@ -15,7 +15,7 @@ from app.providers.whoop.whoop_oauth import (
     compute_expires_at,
 )
 from app.providers.whoop.whoop_client import WhoopClient
-from app.domain.metric_registry import get_metric_spec
+from app.domain.metrics.registry import get_metric_spec
 from app.domain.repositories.provider_token_repository import ProviderTokenRepository
 
 logger = logging.getLogger(__name__)

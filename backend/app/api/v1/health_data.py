@@ -4,11 +4,12 @@ from datetime import datetime
 
 from app.core.database import get_db
 from app.api.schemas.health_data import HealthDataBatchIn, HealthDataBatchOut
-from app.domain.metric_registry import get_metric_spec
+from app.domain.metrics.registry import get_metric_spec
 from app.domain.models.health_data_point import HealthDataPoint
 from app.engine.baseline_service import recompute_baseline
 from app.api.auth_mode import get_request_user_id
 from app.api.router_factory import make_v1_router
+from app.services.data_quality import DataQualityService
 
 router = make_v1_router(prefix="/api/v1/health-data", tags=["health-data"])
 
@@ -36,11 +37,13 @@ def ingest_health_data_batch(
         UnitConversionError,
     )
     from datetime import timezone
+
+    dq = DataQualityService()
     
     for p in payload.points:
         try:
             spec = get_metric_spec(p.metric_key)
-        except ValueError as e:
+        except (KeyError, ValueError) as e:
             rejected += 1
             reasons.append(str(e))
             continue
@@ -104,6 +107,24 @@ def ingest_health_data_batch(
             timestamp=timestamp,
             source=p.source,
         )
+        # Phase 1.3: compute lightweight per-value quality signal.
+        # Governance rule: do NOT reject or delete here – only tag rows.
+        qa = dq.assess_single_value(
+            metric_key=p.metric_key,
+            timestamp=timestamp,
+            value=value,
+            ingested_at=datetime.utcnow(),
+        )
+        # Store a minimal inline quality payload in the existing JSON field.
+        # This is intentionally simple and reversible; provider ingestions
+        # continue to store their own structured quality scores.
+        row.quality_score = {
+            "inline_score": qa.score,
+            "validity": qa.validity,
+            "timeliness_seconds": qa.timeliness_seconds,
+            "completeness": qa.completeness,
+        }
+        row.validity = qa.validity
         db.add(row)
         inserted += 1
         touched_metrics.add(p.metric_key)

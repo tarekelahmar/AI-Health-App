@@ -3,7 +3,7 @@ from statistics import mean, pstdev
 from sqlalchemy.orm import Session
 import logging
 
-from app.domain.metric_registry import get_metric_spec, METRICS
+from app.domain.metrics.registry import get_metric_spec, METRIC_REGISTRY as METRICS
 from app.domain.models.baseline import Baseline
 from app.domain.models.health_data_point import HealthDataPoint
 from app.engine.baseline_errors import BaselineError, BaselineErrorType, BaselineUnavailable

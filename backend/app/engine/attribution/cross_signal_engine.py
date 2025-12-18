@@ -16,7 +16,7 @@ from app.domain.models.intervention import Intervention
 from app.domain.models.experiment import Experiment
 from app.domain.repositories.personal_driver_repository import PersonalDriverRepository
 from app.domain.driver_registry import DRIVER_REGISTRY, get_driver_spec, get_drivers_for_outcome
-from app.domain.metric_registry import METRICS
+from app.domain.metrics.registry import METRIC_REGISTRY as METRICS
 from app.engine.attribution.guardrails import apply_attribution_guardrails
 
 logger = logging.getLogger(__name__)
