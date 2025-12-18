@@ -1,5 +1,6 @@
 from logging.config import fileConfig
 
+import sqlalchemy as sa
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
@@ -54,14 +55,17 @@ def run_migrations_offline() -> None:
     """
     # Get database URL from config
     from app.config.settings import get_settings
+
     settings = get_settings()
     url = settings.DATABASE_URL
-    
+
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        # Use a wider version_num column so long revision IDs fit safely
+        version_table_pk_type=sa.String(64),
     )
 
     with context.begin_transaction():
@@ -77,11 +81,15 @@ def run_migrations_online() -> None:
     """
     # Use our database engine from app.database
     from app.database import engine
+
     connectable = engine
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            # Use a wider version_num column so long revision IDs fit safely
+            version_table_pk_type=sa.String(64),
         )
 
         with context.begin_transaction():

@@ -587,7 +587,14 @@ def test_12_migration_integrity_fresh_db(tmp_path):
     backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     env = os.environ.copy()
     env["PYTHONPATH"] = backend_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    subprocess.check_call(["alembic", "-c", "alembic.ini", "upgrade", "head"], cwd=backend_root, env=env)
+    # Use the current Python interpreter's Alembic module instead of relying on a
+    # global 'alembic' binary on PATH. This makes the test robust in CI and when
+    # pytest is invoked via a venv without activation.
+    subprocess.check_call(
+        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", "head"],
+        cwd=backend_root,
+        env=env,
+    )
 
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     insp = inspect(engine)
