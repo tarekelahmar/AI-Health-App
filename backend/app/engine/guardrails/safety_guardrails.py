@@ -10,12 +10,36 @@ def make_safety_insight_payload(
     user_id: int,
     triggers: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    """
+    Create a safety insight payload from red flag triggers.
+
+    Safety insights have confidence=1.0 (deterministic) and bypass
+    normal suppression rules.
+    """
     # One "umbrella" safety insight containing all triggers
     title = "Safety alert"
     summary = triggers[0]["message"] if triggers else "Safety alert triggered."
+
+    # Extract metric_key from first trigger
+    metric_key = triggers[0].get("metric_key") if triggers else None
+
+    # Build evidence from triggers
+    evidence = {}
+    for trigger in triggers:
+        if trigger.get("metric_key"):
+            evidence[trigger["metric_key"]] = trigger.get("evidence", {}).get("value")
+
+    # Build metadata that satisfies invariant requirements:
+    # - must contain 'metric_key'
+    # - must contain 'evidence' or 'status'
     metadata = {
         "type": "safety",
+        "status": "safety",  # Satisfies invariant requirement
+        "metric_key": metric_key,  # Satisfies invariant requirement
+        "evidence": evidence,  # Satisfies invariant requirement
         "triggers": triggers,
+        "severity": triggers[0].get("severity") if triggers else "medium",
+        "action": triggers[0].get("action") if triggers else "monitor",
         "generated_at": datetime.utcnow().isoformat(),
     }
 
@@ -25,7 +49,7 @@ def make_safety_insight_payload(
         "description": summary,
         "insight_type": "safety",         # domain uses insight_type; transformer maps to status
         "confidence_score": 1.0,          # safety is deterministic rule
-        "metric_key": triggers[0].get("metric_key") if triggers else None,
+        "metric_key": metric_key,
         "metadata_json": json.dumps(metadata),
     }
 
