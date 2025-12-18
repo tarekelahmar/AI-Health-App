@@ -1,42 +1,33 @@
 import json
 import logging
-from sqlalchemy.orm import Session
 from datetime import datetime
 
-from app.domain.metric_registry import METRICS
+from sqlalchemy.orm import Session
+
+from app.domain.health_domains import domain_for_signal
 from app.domain.metric_policies import get_metric_policy
+from app.domain.metric_registry import METRICS
 from app.domain.models.baseline import Baseline
+from app.domain.repositories.audit_repository import AuditRepository
+from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
+from app.domain.repositories.explanation_repository import ExplanationRepository
+from app.domain.repositories.insight_repository import InsightRepository
+from app.domain.repositories.symptom_repository import SymptomRepository
+from app.engine.detectors import detect_change, detect_instability, detect_trend
+from app.engine.domain_status import compute_domain_statuses
+from app.engine.governance.claim_policy import get_policy, validate_language
+from app.engine.governance.insight_suppression import InsightSuppressionService
+from app.engine.guardrails import apply_escalation_rules, filter_insights
+from app.engine.guardrails.safety_guardrails import run_safety_gate
+from app.engine.metric_guardrails import apply_guardrails
+from app.engine.insight_factory import (
+    make_change_insight_payload,
+    make_instability_insight_payload,
+    make_trend_insight_payload,
+)
 from app.engine.signal_builder import fetch_recent_values
 
 logger = logging.getLogger(__name__)
-# Import apply_guardrails - need to handle the guardrails.py file vs guardrails/ package conflict
-# Import directly from the file using importlib
-import importlib.util
-import os
-backend_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-guardrails_file_path = os.path.join(backend_path, "app", "engine", "guardrails.py")
-spec = importlib.util.spec_from_file_location("app.engine.guardrails_file", guardrails_file_path)
-guardrails_file = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(guardrails_file)
-apply_guardrails = guardrails_file.apply_guardrails
-
-from app.engine.guardrails.safety_guardrails import run_safety_gate
-from app.engine.guardrails import filter_insights, apply_escalation_rules
-from app.engine.detectors import detect_change, detect_trend, detect_instability
-from app.engine.insight_factory import (
-    make_change_insight_payload,
-    make_trend_insight_payload,
-    make_instability_insight_payload,
-)
-from app.engine.governance.insight_suppression import InsightSuppressionService
-from app.domain.health_domains import domain_for_signal
-from app.engine.domain_status import compute_domain_statuses
-from app.engine.governance.claim_policy import validate_language, get_policy
-from app.domain.repositories.insight_repository import InsightRepository
-from app.domain.repositories.audit_repository import AuditRepository
-from app.domain.repositories.explanation_repository import ExplanationRepository
-from app.domain.repositories.symptom_repository import SymptomRepository
-from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
 
 
 def run_loop(db: Session, user_id: int) -> dict:
