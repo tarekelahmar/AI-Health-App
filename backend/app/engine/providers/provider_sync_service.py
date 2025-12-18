@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.providers.whoop.whoop_adapter import WhoopAdapter
 from app.providers.base import NormalizedPoint
-from app.domain.metric_registry import get_metric_spec, METRICS
+from app.domain.metrics.registry import get_metric_spec, METRIC_REGISTRY as METRICS
 from app.domain.repositories.health_data_repository import HealthDataRepository
 from app.domain.models.health_data_point import HealthDataPoint
 from app.domain.models.data_provenance import DataProvenance

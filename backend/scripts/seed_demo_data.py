@@ -1,134 +1,94 @@
-"""Idempotent demo data seeder
-
-This script can be run multiple times without creating duplicates.
-It uses upsert patterns to ensure data consistency.
 """
+Seed the database with synthetic demo data using the DemoProvider.
+
+Usage (from backend/ directory):
+
+    ENV_MODE=demo python scripts/seed_demo_data.py --user-id 1 --days 30 --scenario healthy_baseline
+"""
+
+from __future__ import annotations
+
+import argparse
 from datetime import datetime, timedelta
-from sqlalchemy import func
 
 from app.core.database import SessionLocal
-from app.domain.models import User, WearableSample, LabResult
+from app.domain.models.user import User
+from app.domain.repositories.health_data_repository import HealthDataRepository
+from app.integrations.providers.demo import DemoProvider
 
 
-def seed_demo_data():
-    """Seed demo data - idempotent (safe to run multiple times)"""
+def seed_demo_data(
+    user_id: int,
+    days: int = 30,
+    scenario: str = "healthy_baseline",
+) -> None:
+    """Seed database with synthetic health data (idempotent per user/scenario window)."""
+
     db = SessionLocal()
-
     try:
-    print("🌱 Seeding demo data...")
+        print(f"🌱 Seeding {days} days of '{scenario}' demo data for user {user_id}...")
 
-    # ---- User ----
-    # Check if user already exists
-    user = db.query(User).filter(User.email == "demo@example.com").first()
-    if user:
-        print(f"✅ User already exists (ID: {user.id}), using existing user...")
-    else:
-        user = User(
-            name="Demo User",
-            email="demo@example.com",
-            hashed_password="demo_hash",
-            created_at=datetime.utcnow(),
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        print(f"✅ Created new user (ID: {user.id})")
+        # Ensure user exists (minimal check).
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise RuntimeError(f"User {user_id} does not exist – create the user first.")
 
-    # ---- Wearable data (sleep + HRV) ----
-        # Use upsert pattern: check if sample exists before adding
-        wearable_samples_created = 0
-        wearable_samples_existing = 0
-        
-    for i in range(14):
-            target_date = datetime.utcnow() - timedelta(days=i)
-            
-            # Sleep duration sample
-            sleep_sample = db.query(WearableSample).filter(
-                WearableSample.user_id == user.id,
-                WearableSample.device_type == "fitbit",
-                WearableSample.metric_type == "sleep_duration",
-                WearableSample.timestamp >= target_date - timedelta(hours=12),
-                WearableSample.timestamp <= target_date + timedelta(hours=12),
-            ).first()
-            
-            if not sleep_sample:
-        db.add(
-            WearableSample(
-                user_id=user.id,
-                device_type="fitbit",
-                metric_type="sleep_duration",
-                value=6.5 + i * 0.1,
-                unit="hours",
-                        timestamp=target_date,
-                    )
-                )
-                wearable_samples_created += 1
-            else:
-                wearable_samples_existing += 1
-            
-            # HRV sample
-            hrv_sample = db.query(WearableSample).filter(
-                WearableSample.user_id == user.id,
-                WearableSample.device_type == "fitbit",
-                WearableSample.metric_type == "hrv",
-                WearableSample.timestamp >= target_date - timedelta(hours=12),
-                WearableSample.timestamp <= target_date + timedelta(hours=12),
-            ).first()
-            
-            if not hrv_sample:
-        db.add(
-            WearableSample(
-                user_id=user.id,
-                device_type="fitbit",
-                metric_type="hrv",
-                value=75 - i,
-                unit="ms",
-                        timestamp=target_date,
-                    )
-                )
-                wearable_samples_created += 1
-            else:
-                wearable_samples_existing += 1
+        provider = DemoProvider(scenario=scenario)
 
-        if wearable_samples_created > 0:
-            print(f"✅ Created {wearable_samples_created} new wearable samples")
-        if wearable_samples_existing > 0:
-            print(f"ℹ️  Skipped {wearable_samples_existing} existing wearable samples")
+        end = datetime.utcnow()
+        start = end - timedelta(days=days)
 
-    # ---- Lab result ----
-        # Check if this specific lab result already exists (same test, same day)
-        today = datetime.utcnow().date()
-        lab_result = db.query(LabResult).filter(
-            LabResult.user_id == user.id,
-            LabResult.test_name == "vitamin_d",
-            func.date(LabResult.timestamp) == today,
-        ).first()
-        
-        if not lab_result:
-    db.add(
-        LabResult(
-            user_id=user.id,
-            test_name="vitamin_d",
-            value=42,
-            unit="ng/mL",
-            reference_range="30-100",
-            timestamp=datetime.utcnow(),
-        )
-    )
-            print("✅ Created new lab result")
-        else:
-            print(f"ℹ️  Lab result for vitamin_d already exists for today, skipping...")
+        # Generate synthetic points (no persistence yet).
+        points = db_points = []
+        # DemoProvider.fetch_data is async; run it via asyncio.run-style pattern.
+        import asyncio
 
-    db.commit()
-        print("✅ Demo data seeded successfully (idempotent - safe to rerun).")
+        async def _run() -> None:
+            nonlocal points
+            points = await provider.fetch_data(
+                user_id=user_id,
+                start=start,
+                end=end,
+                metrics=provider.get_supported_metrics(),
+            )
 
-    except Exception as e:
-        db.rollback()
-        print(f"❌ Error seeding data: {e}")
-        raise
+        asyncio.run(_run())
+
+        print(f"Generated {len(points)} synthetic points")
+
+        # Persist via repository to keep a single ingestion path.
+        repo = HealthDataRepository(db)
+        for p in points:
+            repo.create(
+                user_id=p.user_id,
+                data_type=p.metric_type,
+                value=p.value,
+                unit=p.unit,
+                source=p.source,
+                timestamp=p.timestamp,
+            )
+
+        print(f"✅ Seeded {len(points)} points for user {user_id}")
     finally:
-    db.close()
+        db.close()
 
 
 if __name__ == "__main__":
-    seed_demo_data()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--user-id", type=int, required=True)
+    parser.add_argument("--days", type=int, default=30)
+    parser.add_argument(
+        "--scenario",
+        default="healthy_baseline",
+        choices=[
+            "healthy_baseline",
+            "sleep_debt_accumulation",
+            "illness_episode",
+            "stress_period",
+            "intervention_response",
+        ],
+    )
+
+    args = parser.parse_args()
+    seed_demo_data(args.user_id, args.days, args.scenario)
+

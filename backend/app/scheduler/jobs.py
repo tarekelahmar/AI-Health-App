@@ -26,7 +26,7 @@ from app.domain.repositories.daily_checkin_repository import DailyCheckInReposit
 
 from app.engine.loop_runner import run_loop  # your multi-metric loop runner
 from app.engine.baseline_service import recompute_baseline  # baseline compute per user+metric
-from app.domain.metric_registry import METRICS
+from app.domain.metrics.registry import METRIC_REGISTRY as METRICS
 from app.domain.repositories.notification_outbox_repository import NotificationOutboxRepository
 from app.engine.notifications.dispatchers import DISPATCHERS
 from app.engine.synthesis.narrative_synthesizer import generate_and_persist_narrative

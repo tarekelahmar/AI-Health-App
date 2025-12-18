@@ -1,5 +1,16 @@
-# AUDIT FIX: Use single metric registry
-from app.domain.metric_registry import METRICS as CANONICAL_METRICS
+"""
+Data quality helpers.
+
+Phase 1.1:
+- Normalization helpers for incoming values.
+
+Phase 1.3:
+- Per-value quality assessment via DataQualityService.
+"""
+
+# AUDIT FIX: Use single metric registry (Phase 1.1 unified registry)
+from app.domain.metrics.registry import METRIC_REGISTRY as CANONICAL_METRICS
+from app.services.data_quality.quality import DataQualityService, QualityAssessment  # re-export for convenience
 
 
 def normalize_value(metric_key: str, value: float, unit: str) -> float:
@@ -13,4 +24,5 @@ def normalize_value(metric_key: str, value: float, unit: str) -> float:
         )
 
     return float(value)
+
 

@@ -53,6 +53,7 @@ from app.api.v1.personal_model import router as personal_model_router
 from app.api.v1.audit import router as audit_router
 from app.api.v1.system import router as system_router, public_router as system_public_router
 from app.api.v1.health_domains import router as health_domains_router
+from app.integrations.health import router as providers_health_router
 from app.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -211,6 +212,7 @@ app.include_router(audit_router)
 app.include_router(system_router)
 app.include_router(system_public_router)
 app.include_router(health_domains_router)
+app.include_router(providers_health_router)
 
 # Observability
 app.include_router(metrics_system_router)

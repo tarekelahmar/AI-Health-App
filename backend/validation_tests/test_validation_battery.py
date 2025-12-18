@@ -459,7 +459,7 @@ def test_10_suppression_daily_cap_enforced_low_conf_suppressed_first(app_and_db,
     try:
         from app.domain.models.baseline import Baseline  # noqa: WPS433
         # Use real metric keys from registry to satisfy invariants
-        from app.domain.metric_registry import METRICS as REGISTRY  # noqa: WPS433
+        from app.domain.metrics.registry import METRIC_REGISTRY as REGISTRY  # noqa: WPS433
         metric_keys = list(REGISTRY.keys())[:15]
         for mk in metric_keys:
             db.add(Baseline(user_id=1, metric_type=mk, mean=100.0, std=10.0, window_days=30))
