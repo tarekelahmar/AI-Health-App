@@ -20,6 +20,7 @@ from app.core.database import SessionLocal
 from app.domain.models import User
 from app.domain.models.health_data_point import HealthDataPoint
 from app.domain.models.consent import Consent
+from app.domain.models.baseline import Baseline
 
 
 # ============================================================================
@@ -32,46 +33,46 @@ SCENARIOS = {
         "modifiers": {},  # No modifications, just baseline
     },
     "sleep_debt": {
-        "description": "Progressive sleep debt from day 7-14, then recovery",
+        "description": "Progressive sleep debt in recent days (0-6), detectable by change detector",
         "modifiers": {
-            7: {"sleep_duration": 0.85, "hrv_rmssd": 0.9, "energy": 0.8},
-            8: {"sleep_duration": 0.8, "hrv_rmssd": 0.85, "energy": 0.75},
-            9: {"sleep_duration": 0.75, "hrv_rmssd": 0.8, "energy": 0.7},
-            10: {"sleep_duration": 0.7, "hrv_rmssd": 0.75, "energy": 0.65},
-            11: {"sleep_duration": 0.65, "hrv_rmssd": 0.7, "energy": 0.6},
-            12: {"sleep_duration": 0.7, "hrv_rmssd": 0.72, "energy": 0.65},
-            13: {"sleep_duration": 0.75, "hrv_rmssd": 0.78, "energy": 0.7},
-            14: {"sleep_duration": 0.85, "hrv_rmssd": 0.85, "energy": 0.8},
-            15: {"sleep_duration": 0.95, "hrv_rmssd": 0.92, "energy": 0.9},
+            # Recent days (day 0 = today, day 1 = yesterday, etc.)
+            0: {"sleep_duration": 0.65, "hrv_rmssd": 0.7, "energy": 0.6},
+            1: {"sleep_duration": 0.7, "hrv_rmssd": 0.75, "energy": 0.65},
+            2: {"sleep_duration": 0.75, "hrv_rmssd": 0.8, "energy": 0.7},
+            3: {"sleep_duration": 0.8, "hrv_rmssd": 0.85, "energy": 0.75},
+            4: {"sleep_duration": 0.85, "hrv_rmssd": 0.9, "energy": 0.8},
+            5: {"sleep_duration": 0.9, "hrv_rmssd": 0.93, "energy": 0.85},
+            6: {"sleep_duration": 0.95, "hrv_rmssd": 0.96, "energy": 0.9},
         },
     },
     "illness": {
-        "description": "Acute illness episode days 10-13, then recovery",
+        "description": "Acute illness in recent days (0-5), easily detectable",
         "modifiers": {
-            10: {"hrv_rmssd": 0.7, "resting_hr": 1.15, "energy": 0.5, "sleep_efficiency": 0.85},
-            11: {"hrv_rmssd": 0.6, "resting_hr": 1.2, "energy": 0.4, "sleep_efficiency": 0.8},
-            12: {"hrv_rmssd": 0.65, "resting_hr": 1.18, "energy": 0.45, "sleep_efficiency": 0.82},
-            13: {"hrv_rmssd": 0.75, "resting_hr": 1.1, "energy": 0.6, "sleep_efficiency": 0.88},
-            14: {"hrv_rmssd": 0.85, "resting_hr": 1.05, "energy": 0.75, "sleep_efficiency": 0.92},
-            15: {"hrv_rmssd": 0.95, "resting_hr": 1.02, "energy": 0.85, "sleep_efficiency": 0.96},
+            # Recent days - acute phase
+            0: {"hrv_rmssd": 0.55, "resting_hr": 1.25, "energy": 0.35, "sleep_efficiency": 0.75},
+            1: {"hrv_rmssd": 0.6, "resting_hr": 1.2, "energy": 0.4, "sleep_efficiency": 0.8},
+            2: {"hrv_rmssd": 0.65, "resting_hr": 1.18, "energy": 0.45, "sleep_efficiency": 0.82},
+            3: {"hrv_rmssd": 0.7, "resting_hr": 1.15, "energy": 0.5, "sleep_efficiency": 0.85},
+            4: {"hrv_rmssd": 0.8, "resting_hr": 1.1, "energy": 0.6, "sleep_efficiency": 0.88},
+            5: {"hrv_rmssd": 0.9, "resting_hr": 1.05, "energy": 0.75, "sleep_efficiency": 0.93},
         },
     },
     "stress": {
-        "description": "Elevated stress period days 7-21",
+        "description": "Elevated stress period in recent days (0-10)",
         "modifiers": {
-            **{d: {"hrv_rmssd": 0.8, "stress": 1.3, "sleep_efficiency": 0.9, "energy": 0.85}
-               for d in range(7, 22)},
+            **{d: {"hrv_rmssd": 0.75, "stress": 1.4, "sleep_efficiency": 0.85, "energy": 0.8}
+               for d in range(0, 11)},
         },
     },
     "improvement": {
-        "description": "Gradual improvement in all metrics (intervention response)",
+        "description": "Gradual improvement over past two weeks (visible in trends)",
         "modifiers": {
             **{d: {
-                "sleep_duration": 1.0 + (d - 14) * 0.02,
-                "sleep_efficiency": 1.0 + (d - 14) * 0.015,
-                "hrv_rmssd": 1.0 + (d - 14) * 0.025,
-                "energy": 1.0 + (d - 14) * 0.02,
-            } for d in range(14, 30)},
+                "sleep_duration": 1.0 + (14 - d) * 0.015,  # Gets better as we approach today
+                "sleep_efficiency": 1.0 + (14 - d) * 0.01,
+                "hrv_rmssd": 1.0 + (14 - d) * 0.02,
+                "energy": 1.0 + (14 - d) * 0.015,
+            } for d in range(0, 15)},
         },
     },
 }
@@ -94,6 +95,79 @@ BASELINES = {
     "energy": {"value": 3.2, "unit": "score_1_5", "noise": 0.15},
     "stress": {"value": 2.5, "unit": "score_1_5", "noise": 0.2},
 }
+
+
+def create_baselines(db, user_id: int, window_days: int = 14, offset_days: int = 15):
+    """
+    Create baseline records for all metrics based on the seeded data.
+
+    Uses data from `offset_days` to `offset_days + window_days` ago
+    (i.e., the OLDER healthy data, not the recent potentially abnormal data).
+    This is required for the insight loop to function - without baselines,
+    all metrics are skipped.
+
+    Args:
+        db: Database session
+        user_id: User ID
+        window_days: Number of days to include in baseline computation
+        offset_days: Start computing baseline this many days ago
+                     (to skip recent abnormal data from scenarios)
+    """
+    import statistics
+
+    print(f"\n📈 Computing baselines from days {offset_days} to {offset_days + window_days} ago...")
+    print(f"   (Skipping recent {offset_days} days to use healthy baseline data)")
+
+    baselines_created = 0
+    baselines_updated = 0
+
+    for metric_key in BASELINES.keys():
+        # Get data points from the healthy period (older data)
+        from datetime import datetime, timedelta
+        start_date = datetime.utcnow() - timedelta(days=offset_days + window_days)
+        end_date = datetime.utcnow() - timedelta(days=offset_days)
+
+        points = db.query(HealthDataPoint).filter(
+            HealthDataPoint.user_id == user_id,
+            HealthDataPoint.metric_type == metric_key,
+            HealthDataPoint.timestamp >= start_date,
+            HealthDataPoint.timestamp <= end_date
+        ).all()
+
+        if len(points) < 5:
+            print(f"   ⚠️  {metric_key}: insufficient data ({len(points)} points)")
+            continue
+
+        values = [p.value for p in points]
+        mean = statistics.mean(values)
+        std = statistics.stdev(values) if len(values) > 1 else 0.1  # Fallback std
+
+        # Check if baseline exists
+        existing = db.query(Baseline).filter(
+            Baseline.user_id == user_id,
+            Baseline.metric_type == metric_key
+        ).first()
+
+        if existing:
+            existing.mean = mean
+            existing.std = std
+            existing.window_days = window_days
+            baselines_updated += 1
+        else:
+            baseline = Baseline(
+                user_id=user_id,
+                metric_type=metric_key,
+                mean=mean,
+                std=std,
+                window_days=window_days
+            )
+            db.add(baseline)
+            baselines_created += 1
+
+        print(f"   ✅ {metric_key}: mean={mean:.2f}, std={std:.2f}")
+
+    db.commit()
+    print(f"\n   Created: {baselines_created}, Updated: {baselines_updated}")
 
 
 def generate_value(
@@ -266,6 +340,11 @@ def seed_demo_data(
         print(f"   Skipped: {points_skipped} (already existed)")
         print(f"   User ID: {user.id}")
         print(f"   Metrics: {list(BASELINES.keys())}")
+
+        # Create baselines from the seeded data
+        # Use 14-day window, computing from the "healthy" portion of data
+        create_baselines(db, user.id, window_days=14)
+
         print(f"\n✅ Demo data seeded successfully!")
         print(f"\n🧪 Test the insight loop:")
         print(f"   curl -X POST 'http://localhost:8000/api/v1/insights/run?user_id={user.id}'")
