@@ -52,10 +52,8 @@ class InsightSuppressionService:
                 return True, "Duplicate check failed (missing timestamp)"
             days_since = (today - dup_ts).days
             if days_since < self.MIN_DAYS_BETWEEN_REPEATS:
-                if insight.confidence_score < self.MIN_CONFIDENCE_FOR_REPEAT:
-                    return True, f"Low-confidence repeat (confidence={insight.confidence_score:.2f}) within {days_since} days"
-                # High confidence repeats are allowed after MIN_DAYS_BETWEEN_REPEATS
-                return False, None
+                # Always suppress duplicates within the repeat window
+                return True, f"Duplicate insight for same metric within {days_since} days (min: {self.MIN_DAYS_BETWEEN_REPEATS})"
 
         # NOTE: Daily cap is enforced as a batch in loop_runner (top-N by confidence),
         # so we don't do per-item cap checks here (it would be order-dependent and
