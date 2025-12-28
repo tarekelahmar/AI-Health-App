@@ -46,15 +46,17 @@ SCENARIOS = {
         },
     },
     "illness": {
-        "description": "Acute illness in recent days (0-5), easily detectable",
+        "description": "Acute illness in recent days (0-6), easily detectable",
         "modifiers": {
-            # Recent days - acute phase
-            0: {"hrv_rmssd": 0.55, "resting_hr": 1.25, "energy": 0.35, "sleep_efficiency": 0.75},
-            1: {"hrv_rmssd": 0.6, "resting_hr": 1.2, "energy": 0.4, "sleep_efficiency": 0.8},
-            2: {"hrv_rmssd": 0.65, "resting_hr": 1.18, "energy": 0.45, "sleep_efficiency": 0.82},
-            3: {"hrv_rmssd": 0.7, "resting_hr": 1.15, "energy": 0.5, "sleep_efficiency": 0.85},
-            4: {"hrv_rmssd": 0.8, "resting_hr": 1.1, "energy": 0.6, "sleep_efficiency": 0.88},
-            5: {"hrv_rmssd": 0.9, "resting_hr": 1.05, "energy": 0.75, "sleep_efficiency": 0.93},
+            # Recent days - acute phase (more extreme to cross z-thresholds)
+            # HRV drops ~40%, resting HR rises ~30%, energy drops ~60%, sleep efficiency drops ~20%
+            0: {"hrv_rmssd": 0.45, "resting_hr": 1.35, "energy": 0.30, "sleep_efficiency": 0.70},
+            1: {"hrv_rmssd": 0.50, "resting_hr": 1.30, "energy": 0.35, "sleep_efficiency": 0.72},
+            2: {"hrv_rmssd": 0.55, "resting_hr": 1.28, "energy": 0.40, "sleep_efficiency": 0.75},
+            3: {"hrv_rmssd": 0.58, "resting_hr": 1.25, "energy": 0.42, "sleep_efficiency": 0.76},
+            4: {"hrv_rmssd": 0.60, "resting_hr": 1.22, "energy": 0.45, "sleep_efficiency": 0.78},
+            5: {"hrv_rmssd": 0.62, "resting_hr": 1.18, "energy": 0.48, "sleep_efficiency": 0.80},
+            6: {"hrv_rmssd": 0.65, "resting_hr": 1.15, "energy": 0.50, "sleep_efficiency": 0.82},
         },
     },
     "stress": {
