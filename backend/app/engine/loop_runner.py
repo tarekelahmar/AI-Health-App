@@ -602,13 +602,25 @@ def run_loop(db: Session, user_id: int) -> dict:
         effect_size = metadata.get("effect_size", 0.0)
         if not effect_size:
             effect_size = abs(metadata.get("delta", 0.0)) or abs(metadata.get("z_score", 0.0)) or 0.0
-        
+
+        # Compute coverage from n_points / window_days if not explicitly set
+        # Coverage is required by filter_insights (min_coverage=0.5)
+        coverage = metadata.get("coverage", 0.0)
+        if not coverage:
+            n_points = metadata.get("n_points", 0)
+            window_days = metadata.get("window_days", 7)
+            if n_points and window_days:
+                coverage = min(1.0, n_points / window_days)
+            else:
+                # Default to 1.0 if we have an insight (data was sufficient to create it)
+                coverage = 1.0
+
         insights_dicts.append({
             "id": ins.id,
             "user_id": ins.user_id,
             "metric_key": metadata.get("metric_key", "unknown"),
             "confidence": float(ins.confidence_score or 0.0),
-            "coverage": float(metadata.get("coverage", 0.0)),
+            "coverage": float(coverage),
             "effect_size": float(effect_size),
             "evidence": metadata,
             "insight": ins,  # Keep reference to original
