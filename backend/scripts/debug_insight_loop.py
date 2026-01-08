@@ -22,6 +22,34 @@ def debug_insight_loop(user_id: int):
     print(f"DEBUG: Insight Loop Diagnosis for user_id={user_id}")
     print(f"{'='*60}\n")
 
+    # Check current time and data timestamps
+    now = datetime.utcnow()
+    print(f"Current UTC time: {now}")
+    print(f"7-day window starts: {now - timedelta(days=7)}")
+
+    # Check actual data timestamps in DB
+    sample_data = db.query(HealthDataPoint).filter(
+        HealthDataPoint.user_id == user_id
+    ).order_by(HealthDataPoint.timestamp.desc()).limit(5).all()
+
+    if sample_data:
+        print(f"\nMost recent data points:")
+        for dp in sample_data:
+            age_days = (now - dp.timestamp).days
+            print(f"  {dp.metric_type}: {dp.timestamp} ({age_days} days ago)")
+    else:
+        print("\n[ERROR] No data found for this user!")
+        return
+
+    # Check if data is within window
+    newest = max(dp.timestamp for dp in sample_data)
+    oldest_in_window = now - timedelta(days=7)
+    if newest < oldest_in_window:
+        print(f"\n[WARNING] Newest data ({newest}) is OLDER than 7-day window start ({oldest_in_window})!")
+        print(f"          Data is {(oldest_in_window - newest).days} days outside the detection window.")
+        print(f"          Re-run: python -m scripts.seed_demo_data --clear --scenario illness --user-id {user_id}")
+        return
+
     change_window_days = 7
 
     for metric_key in METRIC_REGISTRY.keys():
