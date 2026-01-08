@@ -82,15 +82,18 @@ class InsightSuppressionService:
         
         if not metric_key:
             return None
-        
+
         # Look for recent insights within window; filter by metric_key in metadata_json (Python-side)
+        # IMPORTANT: Only look at insights created BEFORE this run (generated_at < today)
+        # to avoid treating insights from the same run as duplicates
         cutoff = today - timedelta(days=self.MIN_DAYS_BETWEEN_REPEATS)
-        
+
         candidates = (
             self.db.query(Insight)
             .filter(
                 Insight.user_id == user_id,
                 Insight.generated_at >= cutoff,
+                Insight.generated_at < today,  # Only consider insights from BEFORE this run
                 Insight.id != insight.id,  # Exclude self
             )
             .order_by(Insight.generated_at.desc())
