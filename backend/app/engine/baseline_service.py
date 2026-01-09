@@ -2,14 +2,18 @@ from datetime import datetime, timedelta
 from statistics import mean, pstdev
 from sqlalchemy.orm import Session
 import logging
+from typing import Union, Literal
 
 from app.domain.metrics.registry import get_metric_spec, METRIC_REGISTRY as METRICS
 from app.domain.models.baseline import Baseline
 from app.domain.models.health_data_point import HealthDataPoint
 from app.engine.baseline_errors import BaselineError, BaselineErrorType, BaselineUnavailable
-from typing import Union
+from app.engine.statistics.baseline import RobustBaseline, BaselineMethod
 
 logger = logging.getLogger(__name__)
+
+# Default estimation method for new baselines
+DEFAULT_ESTIMATION_METHOD: Literal["median_mad", "trimmed_mean", "huber", "simple_mean"] = "median_mad"
 
 
 def recompute_baseline(
@@ -18,13 +22,29 @@ def recompute_baseline(
     user_id: int,
     metric_key: str,
     window_days: int = 30,
+    method: str = DEFAULT_ESTIMATION_METHOD,
+    min_stable_samples: int = 14,
 ) -> Baseline:
     """
-    Simple, robust baseline:
-    - take last N days
-    - mean + population stddev (pstdev)
-    
-    SECURITY FIX (Risk #5): Never silently fail. Raise BaselineUnavailable with typed error.
+    Compute robust baseline using configurable estimation method.
+
+    Phase 2.1: Uses robust estimators (median/MAD by default) instead of simple mean/std.
+
+    Args:
+        db: Database session
+        user_id: User ID
+        metric_key: Metric identifier
+        window_days: Days of data to consider (default 30)
+        method: Estimation method - "median_mad", "trimmed_mean", "huber", or "simple_mean"
+        min_stable_samples: Minimum samples to mark baseline as stable (default 14)
+
+    Returns:
+        Baseline object with robust center/spread estimates and confidence intervals
+
+    Raises:
+        BaselineUnavailable: If baseline cannot be computed (with typed error)
+
+    SECURITY: Never silently fail. Raise BaselineUnavailable with typed error.
     """
     # Validate metric exists
     try:
