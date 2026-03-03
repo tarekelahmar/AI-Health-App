@@ -88,23 +88,33 @@ class TestFactorExtractionResult:
         assert result.custom_factors[0].key == "ate_healthy"
 
 
+def _make_anthropic_mock(content_text):
+    """Helper to build a mock Anthropic response."""
+    mock_text_block = MagicMock()
+    mock_text_block.text = content_text
+
+    mock_response = MagicMock()
+    mock_response.content = [mock_text_block]
+    return mock_response
+
+
 class TestFactorExtractionWithMockedLLM:
-    """Tests with mocked OpenAI to verify extraction logic."""
+    """Tests with mocked Anthropic to verify extraction logic."""
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_successful_extraction(self):
         """Test that valid LLM response is parsed correctly."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"factors": {"exercised": true, "social_contact": true}, "custom_factors": []}'
+        mock_response = _make_anthropic_mock(
+            '{"factors": {"exercised": true, "social_contact": true}, "custom_factors": []}'
+        )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("Went for a run and met friends")
 
         assert result is not None
@@ -113,18 +123,18 @@ class TestFactorExtractionWithMockedLLM:
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_filters_unknown_factors(self):
         """Unknown factor keys should be filtered out."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"factors": {"exercised": true, "made_up_factor": true}, "custom_factors": []}'
+        mock_response = _make_anthropic_mock(
+            '{"factors": {"exercised": true, "made_up_factor": true}, "custom_factors": []}'
+        )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("Went for a run and did something made up")
 
         assert result is not None
@@ -133,18 +143,18 @@ class TestFactorExtractionWithMockedLLM:
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_filters_medical_custom_factors(self):
         """Custom factors with medical terms should be filtered."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '{"factors": {}, "custom_factors": [{"key": "diagnosis_adhd", "value": true, "label": "Diagnosed with ADHD"}, {"key": "ate_healthy", "value": true, "label": "Ate Healthy Meal"}]}'
+        mock_response = _make_anthropic_mock(
+            '{"factors": {}, "custom_factors": [{"key": "diagnosis_adhd", "value": true, "label": "Diagnosed with ADHD"}, {"key": "ate_healthy", "value": true, "label": "Ate Healthy Meal"}]}'
+        )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("I was diagnosed with something and ate healthy")
 
         assert result is not None
@@ -153,54 +163,51 @@ class TestFactorExtractionWithMockedLLM:
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_handles_invalid_json_gracefully(self):
         """Invalid JSON from LLM should return None."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "not valid json"
+        mock_response = _make_anthropic_mock("not valid json")
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("Some journal text")
 
         assert result is None
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_handles_empty_llm_response(self):
         """Empty LLM response should return None."""
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = None
+        mock_response.content = []
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("Some journal text")
 
         assert result is None
 
     @patch.dict(os.environ, {
         "ENABLE_LLM_TRANSLATION": "true",
-        "OPENAI_API_KEY": "test-key",
+        "ANTHROPIC_API_KEY": "test-key",
     })
     def test_strips_markdown_fences(self):
         """LLM sometimes wraps JSON in markdown code fences."""
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = '```json\n{"factors": {"exercised": true}, "custom_factors": []}\n```'
+        mock_response = _make_anthropic_mock(
+            '```json\n{"factors": {"exercised": true}, "custom_factors": []}\n```'
+        )
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
-        with patch("openai.OpenAI", return_value=mock_client):
+        with patch("anthropic.Anthropic", return_value=mock_client):
             result = extract_factors_from_text("Went for a run")
 
         assert result is not None
@@ -209,9 +216,9 @@ class TestFactorExtractionWithMockedLLM:
     def test_returns_none_without_api_key(self):
         """Should return None when API key is not set."""
         with patch.dict(os.environ, {"ENABLE_LLM_TRANSLATION": "true"}, clear=False):
-            # Remove OPENAI_API_KEY if it exists
+            # Remove ANTHROPIC_API_KEY if it exists
             env = os.environ.copy()
-            env.pop("OPENAI_API_KEY", None)
+            env.pop("ANTHROPIC_API_KEY", None)
             with patch.dict(os.environ, env, clear=True):
                 result = extract_factors_from_text("Went for a run")
                 assert result is None

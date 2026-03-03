@@ -1,9 +1,10 @@
 """
 Factor Extraction — LLM-powered text → structured behavioral factors.
 
-Uses the same OpenAI gating, safety validation, and fail-closed approach
-as llm/client.py. The LLM's only job is translation (text → structured data).
-All pattern detection is done deterministically downstream.
+Uses Anthropic Claude for translation (text → structured data).
+Same gating, safety validation, and fail-closed approach as before.
+The LLM's only job is translation; all pattern detection is
+done deterministically downstream.
 
 Returns None when LLM is disabled — frontend falls back to manual picker.
 """
@@ -118,7 +119,7 @@ def extract_factors_from_text(journal_text: str) -> Optional[FactorExtractionRes
     """
     Extract structured behavioral factors from journal free text.
 
-    Uses the existing OpenAI client with the same gating as llm/client.py.
+    Uses Anthropic Claude with the same gating approach as llm/client.py.
     Returns None if LLM is disabled, text is empty, or extraction fails.
     """
     if not journal_text or not journal_text.strip():
@@ -130,14 +131,14 @@ def extract_factors_from_text(journal_text: str) -> Optional[FactorExtractionRes
         return None
 
     try:
-        from openai import OpenAI
+        import anthropic
     except ImportError:
-        logger.warning("openai package not installed — factor extraction unavailable")
+        logger.warning("anthropic package not installed — factor extraction unavailable")
         return None
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        logger.warning("OPENAI_API_KEY not set — factor extraction unavailable")
+        logger.warning("ANTHROPIC_API_KEY not set — factor extraction unavailable")
         return None
 
     prompt = FACTOR_EXTRACTION_PROMPT.format(
@@ -146,15 +147,14 @@ def extract_factors_from_text(journal_text: str) -> Optional[FactorExtractionRes
     )
 
     try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,  # Low temp for consistent extraction
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"),
             max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
         )
 
-        content = response.choices[0].message.content
+        content = response.content[0].text if response.content else None
         if not content:
             logger.warning("LLM returned empty response for factor extraction")
             return None
