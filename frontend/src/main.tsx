@@ -1,29 +1,46 @@
-/**
- * ALPHA WIRING: Single entry point
- * Exactly 5 routes as specified
- */
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { AppShell } from './components/layout/AppShell'
 import LoginPage from './pages/LoginPage'
 import ConsentPage from './pages/ConsentPage'
 import ConnectPage from './pages/ConnectPage'
+import OAuthCallback from './pages/OAuthCallback'
+import DashboardPage from './pages/DashboardPage'
+import DomainsPage from './pages/DomainsPage'
+import DomainDetailPage from './pages/DomainDetailPage'
+import ForecastsPage from './pages/ForecastsPage'
+import ExperimentsPage from './pages/ExperimentsPage'
+import MemoryPage from './pages/MemoryPage'
 import InsightsFeedPage from './pages/InsightsFeedPage'
 import NarrativesPage from './pages/NarrativesPage'
-import OAuthCallback from './pages/OAuthCallback'
+import SettingsPage from './pages/SettingsPage'
 import './index.css'
 
 function App() {
   return (
     <Routes>
-      {/* ALPHA: Exactly 5 routes */}
+      {/* Onboarding routes (no navigation shell) */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/consent" element={<ConsentPage />} />
       <Route path="/connect" element={<ConnectPage />} />
-      <Route path="/insights" element={<InsightsFeedPage />} />
-      <Route path="/narratives" element={<NarrativesPage />} />
       <Route path="/oauth/callback" element={<OAuthCallback />} />
+
+      {/* Authenticated routes (with AppShell navigation) */}
+      <Route element={<AppShell />}>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/domains" element={<DomainsPage />} />
+        <Route path="/domains/:key" element={<DomainDetailPage />} />
+        <Route path="/forecasts" element={<ForecastsPage />} />
+        <Route path="/experiments" element={<ExperimentsPage />} />
+        <Route path="/memory" element={<MemoryPage />} />
+        <Route path="/insights" element={<InsightsFeedPage />} />
+        <Route path="/narratives" element={<NarrativesPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Route>
+
+      {/* Default redirect */}
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
   );
@@ -38,4 +55,3 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </React.StrictMode>,
 )
-
