@@ -7,6 +7,7 @@ export type CheckIn = {
   energy?: number | null;
   mood?: number | null;
   stress?: number | null;
+  focus?: number | null;
 
   notes?: string | null;
   behaviors_json: Record<string, any>;
@@ -24,6 +25,7 @@ export type CheckInUpsertRequest = {
   energy?: number | null;
   mood?: number | null;
   stress?: number | null;
+  focus?: number | null;
 
   notes?: string | null;
   behaviors_json?: Record<string, any>;

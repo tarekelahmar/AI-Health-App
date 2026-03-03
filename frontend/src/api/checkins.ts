@@ -1,24 +1,17 @@
-import axios from "axios";
-import type { CheckIn, CheckInUpsertRequest } from "../types/CheckIn";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+import apiClient from './client';
+import type { CheckIn, CheckInUpsertRequest } from '../types/CheckIn';
 
 export async function getCheckIn(userId: number, dateISO: string): Promise<CheckIn> {
-  const res = await axios.get(`${API_BASE}/api/v1/checkins/${dateISO}`, {
-    params: { user_id: userId },
-  });
+  const res = await apiClient.get(`/checkins/${dateISO}`);
   return res.data;
 }
 
 export async function upsertCheckIn(payload: CheckInUpsertRequest): Promise<CheckIn> {
-  const res = await axios.post(`${API_BASE}/api/v1/checkins/upsert`, payload);
+  const res = await apiClient.post('/checkins/upsert', payload);
   return res.data;
 }
 
 export async function patchCheckIn(userId: number, dateISO: string, patch: Partial<CheckIn>): Promise<CheckIn> {
-  const res = await axios.patch(`${API_BASE}/api/v1/checkins/${dateISO}`, patch, {
-    params: { user_id: userId },
-  });
+  const res = await apiClient.patch(`/checkins/${dateISO}`, patch);
   return res.data;
 }
-

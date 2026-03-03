@@ -10,19 +10,24 @@ import { RiskAlertCard } from '../components/dashboard/RiskAlertCard';
 import { RiskOverview } from '../components/dashboard/RiskOverview';
 import { ActiveExperimentCard, ActiveExperiment } from '../components/dashboard/ActiveExperimentCard';
 import { RecentInsightsCard, InsightSummary } from '../components/dashboard/RecentInsightsCard';
+import { WellnessScoreRing } from '../components/journal/WellnessScoreRing';
 import { fetchRiskAssessment } from '../api/risk';
 import { fetchCurrentRegime } from '../api/regime';
 import { fetchInsightsFeed } from '../api/insights';
 import { fetchMetricSeries } from '../api/metrics';
+import { getScoreHistory } from '../api/wellnessScore';
 import apiClient from '../api/client';
 import type { RiskAssessment } from '../types/Risk';
 import type { RegimeClassification } from '../types/Regime';
+import type { WellnessScore } from '../types/WellnessScore';
 
 interface DashboardData {
   regime: RegimeClassification | null;
   risks: RiskAssessment[];
   insights: InsightSummary[];
   experiments: ActiveExperiment[];
+  wellnessScore: WellnessScore | null;
+  yesterdayScore: number | null;
   sparklines: {
     hrv: number[];
     sleep: number[];
@@ -58,6 +63,8 @@ export default function DashboardPage() {
     risks: [],
     insights: [],
     experiments: [],
+    wellnessScore: null,
+    yesterdayScore: null,
     sparklines: { hrv: [], sleep: [], energy: [], rhr: [] },
     currentValues: {},
   });
@@ -75,12 +82,13 @@ export default function DashboardPage() {
     setLoading(true);
 
     // Fetch all data in parallel - each call is independent and non-blocking
-    const [regimeResult, riskResult, insightsResult, experimentsResult, hrvData, sleepData, energyData, rhrData] =
+    const [regimeResult, riskResult, insightsResult, experimentsResult, wellnessResult, hrvData, sleepData, energyData, rhrData] =
       await Promise.allSettled([
         fetchCurrentRegime(),
         fetchRiskAssessment(),
         fetchInsightsFeed(userId, 3),
         apiClient.get('/experiments', { params: { limit: 5 } }).then((r) => r.data),
+        getScoreHistory(2),
         fetchMetricSeries(userId, 'hrv_rmssd_ms').catch(() => null),
         fetchMetricSeries(userId, 'sleep_duration_minutes').catch(() => null),
         fetchMetricSeries(userId, 'subjective_energy').catch(() => null),
@@ -89,6 +97,16 @@ export default function DashboardPage() {
 
     const regime = regimeResult.status === 'fulfilled' ? regimeResult.value : null;
     const risks = riskResult.status === 'fulfilled' ? riskResult.value.assessments || [] : [];
+
+    // Extract wellness score
+    const wellnessScores = wellnessResult.status === 'fulfilled' ? wellnessResult.value : [];
+    const todayISO = new Date().toISOString().split('T')[0];
+    const todayWS = wellnessScores.find((s: WellnessScore) => s.score_date === todayISO) || null;
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayISO = yesterdayDate.toISOString().split('T')[0];
+    const yesterdayWS = wellnessScores.find((s: WellnessScore) => s.score_date === yesterdayISO);
+    const yesterdayScoreVal = yesterdayWS ? yesterdayWS.score : null;
 
     // Transform insights to summary format
     const rawInsights = insightsResult.status === 'fulfilled' ? insightsResult.value.items || [] : [];
@@ -134,6 +152,8 @@ export default function DashboardPage() {
       risks,
       insights,
       experiments: activeExps,
+      wellnessScore: todayWS,
+      yesterdayScore: yesterdayScoreVal,
       sparklines: {
         hrv: extractValues(hrvData),
         sleep: extractValues(sleepData),
@@ -211,6 +231,32 @@ export default function DashboardPage() {
         <h1 className="text-xl font-bold text-gray-900">Good morning</h1>
         <p className="text-sm text-gray-500">{today}</p>
       </div>
+
+      {/* Wellness Score Widget */}
+      <Link to="/journal">
+        <Card className="flex items-center gap-4">
+          <WellnessScoreRing
+            score={data.wellnessScore?.score ?? null}
+            size={72}
+            yesterdayScore={data.yesterdayScore}
+          />
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-700">Today's Wellness</h3>
+            {data.wellnessScore ? (
+              <p className="text-xs text-gray-500 mt-0.5">
+                {data.wellnessScore.objective_score != null && `Wearable: ${Math.round(data.wellnessScore.objective_score)}`}
+                {data.wellnessScore.objective_score != null && data.wellnessScore.subjective_score != null && ' \u00b7 '}
+                {data.wellnessScore.subjective_score != null && `Journal: ${Math.round(data.wellnessScore.subjective_score)}`}
+              </p>
+            ) : (
+              <p className="text-xs text-primary-600 mt-0.5">Tap to log today's check-in</p>
+            )}
+          </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} style={{ width: 16, height: 16 }} className="text-gray-400">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </Card>
+      </Link>
 
       {/* Regime banner (conditional) */}
       {data.regime && data.regime.regime !== 'normal' && (

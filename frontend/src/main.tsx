@@ -13,6 +13,7 @@ import DomainDetailPage from './pages/DomainDetailPage'
 import ForecastsPage from './pages/ForecastsPage'
 import ExperimentsPage from './pages/ExperimentsPage'
 import MemoryPage from './pages/MemoryPage'
+import JournalPage from './pages/JournalPage'
 import InsightsFeedPage from './pages/InsightsFeedPage'
 import NarrativesPage from './pages/NarrativesPage'
 import SettingsPage from './pages/SettingsPage'
@@ -34,6 +35,7 @@ function App() {
         <Route path="/domains/:key" element={<DomainDetailPage />} />
         <Route path="/forecasts" element={<ForecastsPage />} />
         <Route path="/experiments" element={<ExperimentsPage />} />
+        <Route path="/journal" element={<JournalPage />} />
         <Route path="/memory" element={<MemoryPage />} />
         <Route path="/insights" element={<InsightsFeedPage />} />
         <Route path="/narratives" element={<NarrativesPage />} />

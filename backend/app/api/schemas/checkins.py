@@ -15,6 +15,7 @@ class DailyCheckInCreate(BaseModel):
     energy: Optional[Score0to10] = None
     mood: Optional[Score0to10] = None
     stress: Optional[Score0to10] = None
+    focus: Optional[Score0to10] = None
 
     notes: Optional[str] = None
     behaviors_json: Dict[str, Any] = Field(default_factory=dict)
@@ -25,6 +26,7 @@ class DailyCheckInUpdate(BaseModel):
     energy: Optional[Score0to10] = None
     mood: Optional[Score0to10] = None
     stress: Optional[Score0to10] = None
+    focus: Optional[Score0to10] = None
 
     notes: Optional[str] = None
     behaviors_json: Optional[Dict[str, Any]] = None
@@ -40,6 +42,7 @@ class DailyCheckInResponse(BaseModel):
     energy: Optional[int] = None
     mood: Optional[int] = None
     stress: Optional[int] = None
+    focus: Optional[int] = None
 
     notes: Optional[str] = None
     behaviors_json: Dict[str, Any]

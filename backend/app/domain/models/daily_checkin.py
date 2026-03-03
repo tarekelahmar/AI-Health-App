@@ -29,6 +29,7 @@ class DailyCheckIn(Base):
     energy = Column(Integer, nullable=True)          # 0-10
     mood = Column(Integer, nullable=True)            # 0-10
     stress = Column(Integer, nullable=True)          # 0-10
+    focus = Column(Integer, nullable=True)           # 0-10
 
     # Free text (optional)
     notes = Column(String, nullable=True)

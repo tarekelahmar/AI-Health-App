@@ -1,6 +1,7 @@
+import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from sqlalchemy.orm import Session
 
@@ -11,13 +12,35 @@ from app.api.schemas.checkins import DailyCheckInCreate, DailyCheckInUpdate, Dai
 from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
 from app.api.auth_mode import get_request_user_id
 from app.api.router_factory import make_v1_router
+from app.engine.checkin_bridge import sync_checkin_to_datapoints
+
+logger = logging.getLogger(__name__)
 
 router = make_v1_router(prefix="/api/v1/checkins", tags=["checkins"])
+
+
+def _run_journal_patterns(user_id: int):
+    """Background task: compute journal patterns after check-in save."""
+    try:
+        from app.core.database import SessionLocal
+        from app.engine.journal_pattern_engine import compute_journal_patterns
+        db = SessionLocal()
+        try:
+            result = compute_journal_patterns(db, user_id)
+            logger.info(
+                f"Journal patterns computed: {result.patterns_found} found, "
+                f"{result.patterns_new} new, {result.patterns_updated} updated"
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Journal pattern computation failed: {e}")
 
 
 @router.post("/upsert", response_model=DailyCheckInResponse)
 def upsert_checkin(
     payload: DailyCheckInCreate,
+    background_tasks: BackgroundTasks,
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db)
 ):
@@ -31,9 +54,19 @@ def upsert_checkin(
         energy=payload.energy,
         mood=payload.mood,
         stress=payload.stress,
+        focus=payload.focus,
         notes=payload.notes,
         behaviors_json=payload.behaviors_json,
     )
+    # Bridge: sync subjective data into HealthDataPoint for the insight pipeline
+    sync_checkin_to_datapoints(db, obj)
+
+    # Trigger journal pattern computation if behaviors_json has content
+    if payload.behaviors_json and any(
+        isinstance(v, bool) or v in (0, 1) for v in payload.behaviors_json.values()
+    ):
+        background_tasks.add_task(_run_journal_patterns, user_id)
+
     return obj
 
 
@@ -52,10 +85,13 @@ def update_checkin(
         energy=payload.energy,
         mood=payload.mood,
         stress=payload.stress,
+        focus=payload.focus,
         notes=payload.notes,
         behaviors_json=payload.behaviors_json if payload.behaviors_json is not None else None,
         adherence_rate=payload.adherence_rate,
     )
+    # Bridge: sync subjective data into HealthDataPoint for the insight pipeline
+    sync_checkin_to_datapoints(db, obj)
     return obj
 
 

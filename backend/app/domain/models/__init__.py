@@ -32,6 +32,7 @@ from app.domain.models.personal_health_model import PersonalHealthModel
 from app.domain.models.audit_event import AuditEvent
 from app.domain.models.oauth_state import OAuthState
 from app.domain.models.job_run import JobRun
+from app.domain.models.wellness_score import WellnessScore
 
 __all__ = [
     "User",
@@ -67,4 +68,5 @@ __all__ = [
     "AuditEvent",
     "OAuthState",
     "JobRun",
+    "WellnessScore",
 ]
