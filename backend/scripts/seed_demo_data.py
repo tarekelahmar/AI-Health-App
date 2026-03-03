@@ -141,8 +141,13 @@ def create_baselines(db, user_id: int, window_days: int = 14, offset_days: int =
             continue
 
         values = [p.value for p in points]
-        mean = statistics.mean(values)
-        std = statistics.stdev(values) if len(values) > 1 else 0.1  # Fallback std
+
+        # Phase 2.1: Use robust baseline estimation (median/MAD)
+        from app.engine.statistics.robust_baseline import estimate_baseline
+        estimate = estimate_baseline(values, method="median_mad", min_samples=5)
+        if estimate is None:
+            print(f"   ⚠️  {metric_key}: estimation failed")
+            continue
 
         # Check if baseline exists
         existing = db.query(Baseline).filter(
@@ -151,22 +156,36 @@ def create_baselines(db, user_id: int, window_days: int = 14, offset_days: int =
         ).first()
 
         if existing:
-            existing.mean = mean
-            existing.std = std
+            existing.mean = estimate.center
+            existing.std = estimate.spread
             existing.window_days = window_days
+            existing.method = estimate.method
+            existing.n_samples = estimate.n_samples
+            existing.ci_80_low = estimate.ci_80[0]
+            existing.ci_80_high = estimate.ci_80[1]
+            existing.ci_95_low = estimate.ci_95[0]
+            existing.ci_95_high = estimate.ci_95[1]
+            existing.is_stable = estimate.is_stable
             baselines_updated += 1
         else:
             baseline = Baseline(
                 user_id=user_id,
                 metric_type=metric_key,
-                mean=mean,
-                std=std,
-                window_days=window_days
+                mean=estimate.center,
+                std=estimate.spread,
+                window_days=window_days,
+                method=estimate.method,
+                n_samples=estimate.n_samples,
+                ci_80_low=estimate.ci_80[0],
+                ci_80_high=estimate.ci_80[1],
+                ci_95_low=estimate.ci_95[0],
+                ci_95_high=estimate.ci_95[1],
+                is_stable=estimate.is_stable,
             )
             db.add(baseline)
             baselines_created += 1
 
-        print(f"   ✅ {metric_key}: mean={mean:.2f}, std={std:.2f}")
+        print(f"   ✅ {metric_key}: center={estimate.center:.2f}, spread={estimate.spread:.2f} ({estimate.method}, n={estimate.n_samples}, stable={estimate.is_stable})")
 
     db.commit()
     print(f"\n   Created: {baselines_created}, Updated: {baselines_updated}")

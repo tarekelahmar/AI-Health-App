@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from statistics import mean, pstdev
 from sqlalchemy.orm import Session
 import logging
 from typing import Union, Literal
@@ -8,7 +7,7 @@ from app.domain.metrics.registry import get_metric_spec, METRIC_REGISTRY as METR
 from app.domain.models.baseline import Baseline
 from app.domain.models.health_data_point import HealthDataPoint
 from app.engine.baseline_errors import BaselineError, BaselineErrorType, BaselineUnavailable
-from app.engine.statistics.baseline import RobustBaseline, BaselineMethod
+from app.engine.statistics.robust_baseline import estimate_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -22,29 +21,15 @@ def recompute_baseline(
     user_id: int,
     metric_key: str,
     window_days: int = 30,
-    method: str = DEFAULT_ESTIMATION_METHOD,
-    min_stable_samples: int = 14,
+    method: str = "median_mad",
 ) -> Baseline:
     """
-    Compute robust baseline using configurable estimation method.
+    Compute a robust baseline for a metric using outlier-resistant estimators.
 
-    Phase 2.1: Uses robust estimators (median/MAD by default) instead of simple mean/std.
+    Phase 2.1: Uses median/MAD by default instead of mean/std.
+    Stores confidence intervals and sample metadata for auditability.
 
-    Args:
-        db: Database session
-        user_id: User ID
-        metric_key: Metric identifier
-        window_days: Days of data to consider (default 30)
-        method: Estimation method - "median_mad", "trimmed_mean", "huber", or "simple_mean"
-        min_stable_samples: Minimum samples to mark baseline as stable (default 14)
-
-    Returns:
-        Baseline object with robust center/spread estimates and confidence intervals
-
-    Raises:
-        BaselineUnavailable: If baseline cannot be computed (with typed error)
-
-    SECURITY: Never silently fail. Raise BaselineUnavailable with typed error.
+    Raises BaselineUnavailable with typed error on any failure.
     """
     # Validate metric exists
     try:
@@ -101,15 +86,14 @@ def recompute_baseline(
         raise BaselineUnavailable(error)
 
     values = [r.value for r in rows if r.value is not None]
-    
-    # SECURITY FIX: Explicit insufficient data handling
+
     if len(values) < 5:
         error = BaselineError(
             error_type=BaselineErrorType.INSUFFICIENT_DATA,
             message=f"Insufficient data for baseline: {len(values)} < 5 points required",
             user_id=user_id,
             metric_key=metric_key,
-            recoverable=True,  # Can retry when more data arrives
+            recoverable=True,
         )
         logger.warning(
             "baseline_insufficient_data",
@@ -121,10 +105,11 @@ def recompute_baseline(
             },
         )
         raise BaselineUnavailable(error)
-    
+
     try:
-        mu = mean(values)
-        sd = pstdev(values) if len(values) > 1 else 0.0
+        estimate = estimate_baseline(values, method=method, min_samples=5)
+        if estimate is None:
+            raise ValueError("estimate_baseline returned None despite sufficient data")
     except Exception as e:
         error = BaselineError(
             error_type=BaselineErrorType.COMPUTATION_ERROR,
@@ -155,27 +140,40 @@ def recompute_baseline(
             baseline = Baseline(
                 user_id=user_id,
                 metric_type=metric_key,
-                mean=mu,
-                std=sd,
+                mean=estimate.center,
+                std=estimate.spread,
                 window_days=window_days,
+                method=estimate.method,
+                n_samples=estimate.n_samples,
+                ci_80_low=estimate.ci_80[0],
+                ci_80_high=estimate.ci_80[1],
+                ci_95_low=estimate.ci_95[0],
+                ci_95_high=estimate.ci_95[1],
+                is_stable=estimate.is_stable,
             )
             db.add(baseline)
         else:
-            baseline.mean = mu
-            baseline.std = sd
+            baseline.mean = estimate.center
+            baseline.std = estimate.spread
             baseline.window_days = window_days
+            baseline.method = estimate.method
+            baseline.n_samples = estimate.n_samples
+            baseline.ci_80_low = estimate.ci_80[0]
+            baseline.ci_80_high = estimate.ci_80[1]
+            baseline.ci_95_low = estimate.ci_95[0]
+            baseline.ci_95_high = estimate.ci_95[1]
+            baseline.is_stable = estimate.is_stable
 
         db.commit()
         db.refresh(baseline)
         return baseline
     except Exception as e:
-        # SECURITY FIX: Never silently fail - raise typed error
         error = BaselineError(
             error_type=BaselineErrorType.TABLE_MISSING if "does not exist" in str(e).lower() else BaselineErrorType.DATABASE_ERROR,
             message=f"Baseline persistence failed: {e}",
             user_id=user_id,
             metric_key=metric_key,
-            recoverable=True,  # May be recoverable if table is created
+            recoverable=True,
         )
         logger.error(
             "baseline_persistence_failed",
@@ -193,10 +191,11 @@ def compute_baselines_for_user(
     db: Session,
     user_id: int,
     window_days: int = 30,
+    method: str = "median_mad",
 ) -> dict:
     """
     Compute baselines for all registered metrics for a user.
-    
+
     Returns dict with:
     - computed: list of metric keys successfully computed
     - failed: list of (metric_key, error_type) tuples for failures
@@ -205,7 +204,7 @@ def compute_baselines_for_user(
     computed = []
     failed = []
     skipped = []
-    
+
     for metric_key in METRICS.keys():
         try:
             recompute_baseline(
@@ -213,6 +212,7 @@ def compute_baselines_for_user(
                 user_id=user_id,
                 metric_key=metric_key,
                 window_days=window_days,
+                method=method,
             )
             computed.append(metric_key)
         except BaselineUnavailable as e:
@@ -221,7 +221,6 @@ def compute_baselines_for_user(
             else:
                 failed.append((metric_key, e.error.error_type.value))
         except Exception as e:
-            # Unexpected error
             logger.error(
                 "baseline_computation_unexpected_error",
                 extra={
@@ -231,7 +230,7 @@ def compute_baselines_for_user(
                 },
             )
             failed.append((metric_key, "unexpected_error"))
-    
+
     return {
         "computed": computed,
         "failed": failed,

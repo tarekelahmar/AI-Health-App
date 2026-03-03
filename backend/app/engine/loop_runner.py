@@ -14,6 +14,8 @@ from app.domain.repositories.explanation_repository import ExplanationRepository
 from app.domain.repositories.insight_repository import InsightRepository
 from app.domain.repositories.symptom_repository import SymptomRepository
 from app.engine.detectors import detect_change, detect_instability, detect_trend
+from app.engine.detectors.change_point_detector import detect_change_points
+from app.engine.statistics.multiple_testing import apply_fdr_to_insights
 from app.engine.domain_status import compute_domain_statuses
 from app.engine.governance.claim_policy import get_policy, validate_language
 from app.engine.governance.insight_suppression import InsightSuppressionService
@@ -584,6 +586,63 @@ def run_loop(db: Session, user_id: int) -> dict:
                 except Exception as e:
                     logger.warning(f"Failed to create audit event for instability insight {insight.id}: {e}")
 
+        # 5) Change point detection (Phase 2.3) - uses 30-day window
+        if "change" in policy.allowed_insights:
+            cp_window_days = 30
+            raw_cp_values = fetch_recent_values(
+                db=db, user_id=user_id, metric_key=metric_key, window_days=cp_window_days
+            )
+            cp_values = [
+                v for v in raw_cp_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
+            if len(cp_values) >= 14:
+                cp_result = detect_change_points(
+                    metric_key=metric_key,
+                    values=cp_values,
+                )
+                if cp_result and cp_result.change_points:
+                    # Only surface the most recent change point with high confidence
+                    recent_cp = max(cp_result.change_points, key=lambda cp: cp.index)
+                    if recent_cp.confidence >= 0.5:
+                        dk = domain_for_signal(metric_key)
+                        cp_evidence = {
+                            "type": "change_point",
+                            "metric_key": metric_key,
+                            "domain_key": dk.value if dk else None,
+                            "window_days": cp_window_days,
+                            "n_points": len(cp_values),
+                            "change_point_index": recent_cp.index,
+                            "magnitude": recent_cp.magnitude,
+                            "direction": recent_cp.direction,
+                            "before_mean": recent_cp.before_mean,
+                            "after_mean": recent_cp.after_mean,
+                            "confidence": recent_cp.confidence,
+                            "n_segments": cp_result.n_segments,
+                            "method": cp_result.method,
+                        }
+                        cp_title = f"{metric_key}: regime shift detected ({recent_cp.direction})"
+                        cp_summary = (
+                            f"A structural change was detected in {metric_key}: "
+                            f"shifted from {recent_cp.before_mean:.1f} to {recent_cp.after_mean:.1f}."
+                        )
+                        cp_confidence = recent_cp.confidence
+                        # Governance: cap by claim level
+                        claim_level = min(5, max(1, int(cp_confidence * 5) + 1))
+                        cp_confidence = min(cp_confidence, claim_level / 5.0)
+                        cp_evidence["claim_level"] = claim_level
+                        meta = dict(cp_evidence)
+                        meta["evidence"] = dict(cp_evidence)
+                        insight = repo.create(
+                            user_id=user_id,
+                            title=cp_title,
+                            description=cp_summary,
+                            insight_type="change_point",
+                            confidence_score=cp_confidence,
+                            metadata_json=json.dumps(meta),
+                        )
+                        created.append(insight)
+
     # Apply guardrails: filter weak insights and apply escalation rules
     # Convert Insight objects to dicts for filtering
     insights_dicts = []
@@ -626,6 +685,30 @@ def run_loop(db: Session, user_id: int) -> dict:
             "insight": ins,  # Keep reference to original
         })
     
+    # 6) FDR correction (Phase 2.4) — adjust for multiple testing across all insights
+    insights_dicts, fdr_result = apply_fdr_to_insights(insights_dicts, alpha=0.10)
+    logger.info(
+        f"FDR correction: {fdr_result.n_discoveries} discoveries out of "
+        f"{len(insights_dicts)} tests (expected false: {fdr_result.expected_false_discoveries})"
+    )
+
+    # Annotate the original Insight objects with FDR metadata
+    for item in insights_dicts:
+        ins = item.get("insight")
+        if ins and "fdr_adjusted_p" in item:
+            try:
+                metadata = {}
+                if ins.metadata_json:
+                    if isinstance(ins.metadata_json, dict):
+                        metadata = ins.metadata_json
+                    else:
+                        metadata = json.loads(ins.metadata_json)
+                metadata["fdr_adjusted_p"] = item["fdr_adjusted_p"]
+                metadata["fdr_significant"] = item["fdr_significant"]
+                ins.metadata_json = json.dumps(metadata)
+            except Exception:
+                pass  # Best-effort FDR annotation
+
     # Filter and escalate
     filtered = filter_insights(insights_dicts)
     escalated = apply_escalation_rules(filtered)
