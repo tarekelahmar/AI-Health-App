@@ -15,13 +15,14 @@ import { DailyScoreCard } from '../components/journal/DailyScoreCard';
 import { WeeklyDomainCard } from '../components/journal/WeeklyDomainCard';
 import { FactorsTab } from '../components/journal/FactorsTab';
 import { HistoryTab } from '../components/journal/HistoryTab';
-import { ActionsStub } from '../components/journal/ActionsStub';
+import { ActionsTab } from '../components/journal/ActionsTab';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
 import { getScoreHistory } from '../api/wellnessScore';
 import { getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { getDomainCheckinStatus, submitDomainCheckin } from '../api/domainCheckins';
+import { getTodayCheckin } from '../api/checkins';
 import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
 import {
   sendMessage,
@@ -92,6 +93,9 @@ export default function JournalPage() {
   const [patterns, setPatterns] = useState<JournalPatternData[]>([]);
   const [weeklySynthesis, setWeeklySynthesis] = useState<Record<string, any> | null>(null);
 
+  // Today's behavioral factors (for Actions tab)
+  const [todayFactors, setTodayFactors] = useState<Record<string, any> | null>(null);
+
   const todayScore = scoreHistory.find((s) => s.score_date === todayISO());
 
   // ── Load initial data ──────────────────────────────────────────
@@ -102,7 +106,7 @@ export default function JournalPage() {
       const [
         sessionsRes, historyRes, domainRes, domainHistRes,
         patternsRes, milestonesRes, synthesisRes, phasesRes,
-        dcStatusRes,
+        dcStatusRes, todayCheckinRes,
       ] = await Promise.allSettled([
         getSessions(30, 50),
         getScoreHistory(30),
@@ -113,6 +117,7 @@ export default function JournalPage() {
         getWeeklySynthesis(),
         getWeeklyPhases(30),
         getDomainCheckinStatus(),
+        getTodayCheckin(),
       ]);
 
       // Build session groups from loaded sessions.
@@ -193,6 +198,10 @@ export default function JournalPage() {
 
       if (phasesRes.status === 'fulfilled') {
         setPhases(phasesRes.value);
+      }
+
+      if (todayCheckinRes.status === 'fulfilled' && todayCheckinRes.value) {
+        setTodayFactors(todayCheckinRes.value.behaviors_json);
       }
     } catch (err) {
       console.error('Failed to load journal data:', err);
@@ -304,6 +313,11 @@ export default function JournalPage() {
               ...dc,
               [data.session_id]: { pending: true, confirmed: false, confirming: false },
             }));
+          }
+
+          // Merge extracted factors into todayFactors (real-time updates from analysis)
+          if (data.extracted_factors && Object.keys(data.extracted_factors).length > 0) {
+            setTodayFactors((prev) => ({ ...prev, ...data.extracted_factors }));
           }
 
           return groups;
@@ -596,7 +610,7 @@ export default function JournalPage() {
             )}
 
             {insightsSubTab === 'actions' && (
-              <ActionsStub />
+              <ActionsTab patterns={patterns} todayFactors={todayFactors} />
             )}
           </div>
         )}

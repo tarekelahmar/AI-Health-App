@@ -55,6 +55,7 @@ export type SSEDoneEvent = {
   message_id: number;
   proposed_score?: number;
   domain_checkin_due?: boolean;
+  extracted_factors?: Record<string, any>;
 };
 
 export type SSEEvent = SSETokenEvent | SSEDoneEvent;

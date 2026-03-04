@@ -193,22 +193,24 @@ def _build_previous_session_text(db: Session, user_id: int, current_session_id: 
     return "\n".join(lines)
 
 
-def _get_context_from_companion(db: Session, user_id: int) -> Tuple[str, str]:
+def _get_context_from_companion(db: Session, user_id: int) -> Tuple[str, str, str]:
     """
     Reuse context building from the V2 companion module.
-    Returns (rolling_summary_text, active_patterns_text).
+    Returns (rolling_summary_text, active_patterns_text, today_factors_text).
     """
     try:
         from app.engine.journal_companion import (
             _format_rolling_summary,
             _format_active_patterns,
+            _format_today_factors,
         )
         rolling = _format_rolling_summary(db, user_id)
         patterns = _format_active_patterns(db, user_id)
-        return rolling, patterns
+        today_factors = _format_today_factors(db, user_id)
+        return rolling, patterns, today_factors
     except Exception as e:
         logger.warning(f"Could not build companion context: {e}")
-        return "Summary unavailable.", "No confirmed patterns yet."
+        return "Summary unavailable.", "No confirmed patterns yet.", "No behavioral factors tracked today yet."
 
 
 # ── Streaming Response ────────────────────────────────────────────
@@ -240,13 +242,14 @@ async def stream_chat_response(
         return
 
     # ── Build context ──
-    rolling_summary, active_patterns = _get_context_from_companion(db, user_id)
+    rolling_summary, active_patterns, today_factors = _get_context_from_companion(db, user_id)
     previous_session_text = _build_previous_session_text(db, user_id, session.id)
 
     system_prompt = build_chat_system_prompt(
         active_patterns_text=active_patterns,
         rolling_summary_text=rolling_summary,
         previous_session_text=previous_session_text,
+        today_factors_text=today_factors,
     )
 
     # Build conversation history (including the new user message, already saved)
@@ -316,6 +319,20 @@ async def stream_chat_response(
     assistant_msg = save_message(db, session.id, user_id, "assistant", full_response)
     db.commit()
 
+    # ── Run analysis (non-streamed second call, before done event) ──
+    # Runs before the done event so we can include extracted_factors for
+    # real-time Actions tab updates. The streaming tokens are already fully
+    # rendered, so the small delay on the done event is acceptable.
+    extracted_factors: Dict[str, Any] = {}
+    try:
+        analysis = _run_analysis(client, model, conversation_messages, user_id)
+        if analysis:
+            assistant_msg.ai_analysis_json = analysis
+            db.commit()
+            extracted_factors = analysis.get("factors", {})
+    except Exception as e:
+        logger.error(f"Analysis extraction failed (non-fatal): {e}")
+
     done_payload: Dict[str, Any] = {
         'type': 'done',
         'session_id': session.id,
@@ -323,6 +340,9 @@ async def stream_chat_response(
     }
     if proposed_score is not None:
         done_payload['proposed_score'] = proposed_score
+
+    if extracted_factors:
+        done_payload['extracted_factors'] = extracted_factors
 
     # Domain check-in trigger: only after 3+ user messages (same gate as score proposals)
     try:
@@ -339,15 +359,6 @@ async def stream_chat_response(
         logger.warning(f"Domain check-in status check failed (non-fatal): {e}")
 
     yield f"data: {json.dumps(done_payload)}\n\n"
-
-    # ── Run analysis silently (non-streamed second call) ──
-    try:
-        analysis = _run_analysis(client, model, conversation_messages, user_id)
-        if analysis:
-            assistant_msg.ai_analysis_json = analysis
-            db.commit()
-    except Exception as e:
-        logger.error(f"Analysis extraction failed (non-fatal): {e}")
 
 
 def _run_analysis(

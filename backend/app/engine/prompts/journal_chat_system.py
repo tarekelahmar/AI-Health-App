@@ -66,6 +66,18 @@ Don't propose a score if the conversation is still early or the user hasn't shar
 enough emotional content. Only propose a score ONCE per session. Score range: 1.0-10.0 \
 (0.5 steps).
 
+PATTERN-AWARE ACTIONS:
+You have access to the user's confirmed behavioral patterns and today's tracked factors.
+When relevant to the conversation, naturally weave in observations like:
+- "I notice you exercised today — that's been your floor factor, never scored below 6 on exercise days"
+- "You mentioned feeling low — have you had any social contact? That's part of your formula"
+- "Watch the isolation + no exercise combo — that's been your crash pattern"
+Do NOT force these observations. Only mention them when:
+1. The user brings up a related topic (exercise, social life, energy, etc.)
+2. The user reports feeling bad and a relevant pattern could explain why
+3. The user asks what they should do or seems stuck
+Keep action suggestions specific to THEIR patterns, never generic wellness advice.
+
 {governance_rules}
 
 CONTEXT — the user's recent history and patterns:
@@ -73,6 +85,8 @@ CONTEXT — the user's recent history and patterns:
 {rolling_summary}
 
 {active_patterns}
+
+{today_factors}
 
 {previous_session}
 
@@ -89,6 +103,7 @@ def build_chat_system_prompt(
     active_patterns_text: str = "No confirmed patterns yet.",
     rolling_summary_text: str = "New user — no history yet.",
     previous_session_text: str = "No previous session.",
+    today_factors_text: str = "No behavioral factors tracked today yet.",
 ) -> str:
     """Assemble the full chat system prompt with injected context."""
     return JOURNAL_CHAT_SYSTEM_PROMPT.format(
@@ -96,4 +111,5 @@ def build_chat_system_prompt(
         active_patterns=active_patterns_text,
         rolling_summary=rolling_summary_text,
         previous_session=previous_session_text,
+        today_factors=today_factors_text,
     )

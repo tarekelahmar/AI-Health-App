@@ -196,6 +196,84 @@ def _format_rolling_summary(db: Session, user_id: int) -> str:
         return "Summary unavailable."
 
 
+def _format_today_factors(db: Session, user_id: int) -> str:
+    """Format today's behavioral factors for companion context.
+
+    Two-tier loading:
+    1. Check DailyCheckIn.behaviors_json (populated after score confirmation)
+    2. Fallback: check latest session's assistant messages for ai_analysis_json.factors
+       (populated mid-conversation by _run_analysis(), before score confirmation)
+
+    Without the fallback, the companion would always say "No factors tracked"
+    during the conversation — defeating the purpose of action awareness.
+    """
+    from datetime import datetime as dt
+
+    today = date.today()
+    behaviors: Optional[Dict] = None
+
+    # Tier 1: DailyCheckIn (populated after score confirmation)
+    checkin = (
+        db.query(DailyCheckIn)
+        .filter(
+            DailyCheckIn.user_id == user_id,
+            DailyCheckIn.checkin_date == today,
+        )
+        .first()
+    )
+    if checkin and checkin.behaviors_json:
+        behaviors = checkin.behaviors_json
+
+    # Tier 2: Latest session's analysis (populated mid-conversation)
+    if not behaviors:
+        try:
+            from app.domain.models.journal_session import JournalSession
+            from app.domain.models.journal_message import JournalMessage
+
+            today_start = dt.combine(today, dt.min.time())
+            latest_session = (
+                db.query(JournalSession)
+                .filter(
+                    JournalSession.user_id == user_id,
+                    JournalSession.started_at >= today_start,
+                )
+                .order_by(JournalSession.started_at.desc())
+                .first()
+            )
+
+            if latest_session:
+                latest_msg = (
+                    db.query(JournalMessage)
+                    .filter(
+                        JournalMessage.session_id == latest_session.id,
+                        JournalMessage.role == "assistant",
+                        JournalMessage.ai_analysis_json.isnot(None),
+                    )
+                    .order_by(JournalMessage.created_at.desc())
+                    .first()
+                )
+                if latest_msg and latest_msg.ai_analysis_json:
+                    behaviors = latest_msg.ai_analysis_json.get("factors", {})
+        except Exception as e:
+            logger.warning(f"Could not load session factors for today: {e}")
+
+    if not behaviors:
+        return "No behavioral factors tracked today yet."
+
+    done = [k.replace("_", " ").title() for k, v in behaviors.items() if v is True]
+    skipped = [k.replace("_", " ").title() for k, v in behaviors.items() if v is False]
+
+    lines = ["TODAY'S BEHAVIORAL FACTORS:"]
+    if done:
+        lines.append(f"  Done: {', '.join(done)}")
+    if skipped:
+        lines.append(f"  Not done: {', '.join(skipped)}")
+    if not done and not skipped:
+        lines.append("  No boolean factors extracted yet.")
+
+    return "\n".join(lines)
+
+
 def _get_recent_entries(db: Session, user_id: int, days: int = 14) -> List[DailyCheckIn]:
     """Fetch recent check-in entries for context."""
     cutoff = date.today() - timedelta(days=days)
