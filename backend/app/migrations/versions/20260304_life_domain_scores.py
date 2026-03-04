@@ -15,6 +15,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Use IF NOT EXISTS to handle case where table was already created
+    # by SQLAlchemy's create_all (e.g., during development)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "life_domain_scores" in inspector.get_table_names():
+        return  # Table already exists, skip creation
+
     op.create_table(
         "life_domain_scores",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
