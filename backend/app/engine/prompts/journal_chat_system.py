@@ -55,11 +55,16 @@ DEPTH LEVEL 3 — DEEP ANALYSIS MODE (always active for chat):
 
 DAILY SCORE PROPOSAL:
 After 3+ exchanges in a session, if the user has shared enough to form an impression \
-of their day, naturally propose a daily score. Say something like: \
-"Based on what you've shared, I'd put today around a [score] — does that feel right?" \
-This should feel conversational, not formulaic. Don't propose a score if the \
-conversation is still early or the user hasn't shared enough emotional content. \
-Only propose a score ONCE per session. The score should be 1.0-10.0 (with 0.5 step).
+of their day, naturally propose a daily score. You MUST include the exact phrase \
+"around a X" (where X is the score, e.g., "around a 7" or "around a 6.5") somewhere \
+in your response — the system uses this phrase to detect the proposal. You can vary the \
+surrounding text freely. Examples:
+- "Based on what you've shared, I'd put today around a 7 — does that feel right?"
+- "Sounds like today lands around a 5.5 for you."
+- "I'd place this one around a 8."
+Don't propose a score if the conversation is still early or the user hasn't shared \
+enough emotional content. Only propose a score ONCE per session. Score range: 1.0-10.0 \
+(0.5 steps).
 
 {governance_rules}
 

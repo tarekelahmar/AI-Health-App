@@ -48,6 +48,13 @@ class ScoreConfirmResponse(BaseModel):
     date: str
 
 
+class SessionMessageInline(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: str
+
+
 class SessionSummary(BaseModel):
     id: int
     started_at: str
@@ -55,6 +62,7 @@ class SessionSummary(BaseModel):
     message_count: int
     preview: str
     summary: Optional[str] = None
+    messages: Optional[List[SessionMessageInline]] = None
 
 
 class SessionMessageResponse(BaseModel):
@@ -121,11 +129,14 @@ def confirm_score(
 def list_sessions(
     days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=50, ge=1, le=200),
+    include_messages: int = Query(default=0, ge=0, le=50,
+                                  description="Include messages for the N most recent sessions"),
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
     """List recent journal sessions for the user."""
-    return get_sessions_for_user(db, user_id, days=days, limit=limit)
+    return get_sessions_for_user(db, user_id, days=days, limit=limit,
+                                 include_messages=include_messages)
 
 
 @router.get("/sessions/{session_id}/messages", response_model=List[SessionMessageResponse])

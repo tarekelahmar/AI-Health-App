@@ -9,6 +9,7 @@ export interface SessionSummary {
   message_count: number;
   preview: string;
   summary: string | null;
+  messages?: SessionMessage[];
 }
 
 export interface SessionMessage {
@@ -52,6 +53,7 @@ export type SSEDoneEvent = {
   type: 'done';
   session_id: number;
   message_id: number;
+  proposed_score?: number;
 };
 
 export type SSEEvent = SSETokenEvent | SSEDoneEvent;

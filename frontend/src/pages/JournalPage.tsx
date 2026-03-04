@@ -25,7 +25,6 @@ import {
   sendMessage,
   confirmDailyScore,
   getSessions,
-  getSessionMessages,
 } from '../api/journalChat';
 import type { WellnessScore } from '../types/WellnessScore';
 import type { LifeDomainScoreData } from '../types/LifeDomain';
@@ -45,20 +44,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'lifemap', label: 'Life Map' },
 ];
 
-// Score proposal detection: match "around a X" or "around a X.X" patterns
-const SCORE_PROPOSAL_REGEX = /around a (\d+(?:\.\d)?)/i;
-
-function parseProposedScore(text: string): number | null {
-  const match = text.match(SCORE_PROPOSAL_REGEX);
-  if (match) {
-    const score = parseFloat(match[1]);
-    if (score >= 1 && score <= 10) {
-      // Round to nearest 0.5
-      return Math.round(score * 2) / 2;
-    }
-  }
-  return null;
-}
+// Score proposal detection is handled server-side.
+// The SSE `done` event includes `proposed_score` when the companion proposes one.
 
 export default function JournalPage() {
   const [loading, setLoading] = useState(true);
@@ -101,7 +88,7 @@ export default function JournalPage() {
         sessionsRes, historyRes, domainRes, domainHistRes,
         patternsRes, milestonesRes, synthesisRes, phasesRes,
       ] = await Promise.allSettled([
-        getSessions(30),
+        getSessions(30, 50),
         getScoreHistory(30),
         getCurrentDomainScores(),
         getDomainScoreHistory(30),
@@ -111,41 +98,38 @@ export default function JournalPage() {
         getWeeklyPhases(30),
       ]);
 
-      // Build session groups from loaded sessions
+      // Build session groups from loaded sessions.
+      // include_messages=50 returns messages inline — single request, no N+1.
       if (sessionsRes.status === 'fulfilled') {
         const sessions = sessionsRes.value;
         const groups: SessionGroup[] = [];
 
         for (const s of sessions) {
-          try {
-            const messages = await getSessionMessages(s.id);
-            groups.push({
-              session_id: s.id,
-              started_at: s.started_at,
-              daily_score: s.daily_score,
-              score_confirmed: s.daily_score !== null,
-              messages: messages.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                created_at: m.created_at,
-              })),
-            });
+          const msgs = s.messages ?? [];
+          groups.push({
+            session_id: s.id,
+            started_at: s.started_at,
+            daily_score: s.daily_score,
+            score_confirmed: s.daily_score !== null,
+            messages: msgs.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              created_at: m.created_at,
+            })),
+          });
 
-            // Track score state for sessions with confirmed scores
-            if (s.daily_score !== null) {
-              setScoreStates((prev) => ({
-                ...prev,
-                [s.id]: { proposed: s.daily_score!, confirmed: true, confirming: false },
-              }));
-            }
+          // Track score state for sessions with confirmed scores
+          if (s.daily_score !== null) {
+            setScoreStates((prev) => ({
+              ...prev,
+              [s.id]: { proposed: s.daily_score!, confirmed: true, confirming: false },
+            }));
+          }
 
-            // Track the most recent session
-            if (groups.length === 1) {
-              setCurrentSessionId(s.id);
-            }
-          } catch {
-            // Session message fetch failed — skip
+          // Track the most recent session
+          if (groups.length === 1) {
+            setCurrentSessionId(s.id);
           }
         }
 
@@ -279,12 +263,11 @@ export default function JournalPage() {
           lastGroup.messages = msgs;
           groups[groups.length - 1] = lastGroup;
 
-          // Check if the assistant proposed a score
-          const proposedScore = parseProposedScore(lastMsg.content);
-          if (proposedScore !== null && !scoreStates[data.session_id]?.confirmed) {
+          // Check if the server detected a score proposal
+          if (data.proposed_score != null && !scoreStates[data.session_id]?.confirmed) {
             setScoreStates((ss) => ({
               ...ss,
-              [data.session_id]: { proposed: proposedScore, confirmed: false, confirming: false },
+              [data.session_id]: { proposed: data.proposed_score!, confirmed: false, confirming: false },
             }));
           }
 

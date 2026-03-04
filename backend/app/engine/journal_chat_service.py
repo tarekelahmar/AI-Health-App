@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, date
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -28,6 +29,24 @@ logger = logging.getLogger(__name__)
 
 # Session gap threshold: >4 hours since last message = new session
 SESSION_GAP_HOURS = 4
+
+# Broad regex for score proposal detection.
+# Matches: "around a 7", "at a 7.5", "maybe a 6", "say a 7.0", "like a 8"
+# Also matches: "put today at 7", "place this at a 6.5"
+_SCORE_PROPOSAL_RE = re.compile(
+    r'(?:around|at|say|like|maybe)\s+(?:a\s+)?(\d+(?:\.\d)?)\b',
+    re.IGNORECASE,
+)
+
+
+def _detect_proposed_score(text: str) -> Optional[float]:
+    """Extract a proposed daily score from companion response text."""
+    match = _SCORE_PROPOSAL_RE.search(text)
+    if match:
+        score = float(match[1])
+        if 1.0 <= score <= 10.0:
+            return round(score * 2) / 2  # snap to 0.5
+    return None
 
 
 # ── Session Management ─────────────────────────────────────────────
@@ -290,11 +309,22 @@ async def stream_chat_response(
         # sophisticated governance (e.g., token-level filtering). For now, we save
         # the sanitized version.
 
+    # ── Detect score proposal ──
+    proposed_score = _detect_proposed_score(full_response)
+
     # ── Save assistant message ──
     assistant_msg = save_message(db, session.id, user_id, "assistant", full_response)
     db.commit()
 
-    yield f"data: {json.dumps({'type': 'done', 'session_id': session.id, 'message_id': assistant_msg.id})}\n\n"
+    done_payload: Dict[str, Any] = {
+        'type': 'done',
+        'session_id': session.id,
+        'message_id': assistant_msg.id,
+    }
+    if proposed_score is not None:
+        done_payload['proposed_score'] = proposed_score
+
+    yield f"data: {json.dumps(done_payload)}\n\n"
 
     # ── Run analysis silently (non-streamed second call) ──
     try:
@@ -501,8 +531,15 @@ def get_sessions_for_user(
     user_id: int,
     days: int = 30,
     limit: int = 50,
+    include_messages: int = 0,
 ) -> List[Dict[str, Any]]:
-    """Get session summaries for the user, most recent first."""
+    """
+    Get session summaries for the user, most recent first.
+
+    Args:
+        include_messages: Include full message arrays for the N most recent
+            sessions. 0 = no messages (default). Avoids N+1 on page load.
+    """
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     sessions = (
@@ -517,7 +554,7 @@ def get_sessions_for_user(
     )
 
     results = []
-    for s in sessions:
+    for idx, s in enumerate(sessions):
         messages = (
             db.query(JournalMessage)
             .filter(JournalMessage.session_id == s.id)
@@ -533,14 +570,28 @@ def get_sessions_for_user(
             if len(first_user.content) > 100:
                 preview += "..."
 
-        results.append({
+        entry: Dict[str, Any] = {
             "id": s.id,
             "started_at": s.started_at.isoformat() + "Z",
             "daily_score": s.daily_score,
             "message_count": len(messages),
             "preview": preview,
             "summary": s.summary,
-        })
+        }
+
+        # Include messages for the N most recent sessions (idx 0 = newest)
+        if include_messages > 0 and idx < include_messages:
+            entry["messages"] = [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at.isoformat() + "Z",
+                }
+                for m in messages
+            ]
+
+        results.append(entry)
 
     return results
 

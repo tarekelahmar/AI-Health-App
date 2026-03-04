@@ -22,7 +22,7 @@ export function sendMessage(
   message: string,
   sessionId: number | undefined,
   onToken: (token: string) => void,
-  onDone: (data: { session_id: number; message_id: number }) => void,
+  onDone: (data: { session_id: number; message_id: number; proposed_score?: number }) => void,
   onError: (error: Error) => void,
 ): AbortController {
   const controller = new AbortController();
@@ -86,6 +86,7 @@ export function sendMessage(
                 onDone({
                   session_id: event.session_id,
                   message_id: event.message_id,
+                  proposed_score: event.proposed_score,
                 });
               }
             } catch {
@@ -120,10 +121,14 @@ export async function confirmDailyScore(
 
 /**
  * Get recent sessions for the user.
+ * @param includeMessages Include messages for the N most recent sessions (avoids N+1).
  */
-export async function getSessions(days: number = 30): Promise<SessionSummary[]> {
+export async function getSessions(
+  days: number = 30,
+  includeMessages: number = 0,
+): Promise<SessionSummary[]> {
   const res = await apiClient.get('/journal/sessions', {
-    params: { days },
+    params: { days, include_messages: includeMessages },
   });
   return res.data;
 }

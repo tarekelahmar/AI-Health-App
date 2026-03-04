@@ -18,6 +18,7 @@ from app.engine.journal_chat_service import (
     get_sessions_for_user,
     get_session_messages,
     SESSION_GAP_HOURS,
+    _detect_proposed_score,
 )
 
 
@@ -293,3 +294,79 @@ class TestSessionMessages:
 
         messages = get_session_messages(db, 999, s.id)  # Wrong user
         assert messages == []
+
+
+# ── Score Proposal Detection ────────────────────────────────────
+
+class TestScoreProposalDetection:
+    """Server-side detection of score proposals from companion text."""
+
+    def test_canonical_around_a(self):
+        assert _detect_proposed_score("I'd put today around a 7") == 7.0
+
+    def test_around_a_decimal(self):
+        assert _detect_proposed_score("Sounds like today lands around a 6.5 for you.") == 6.5
+
+    def test_at_a(self):
+        assert _detect_proposed_score("I'd place this at a 8") == 8.0
+
+    def test_maybe_a(self):
+        assert _detect_proposed_score("maybe a 5.5?") == 5.5
+
+    def test_say_a(self):
+        assert _detect_proposed_score("I'd say a 7 for today") == 7.0
+
+    def test_like_a(self):
+        assert _detect_proposed_score("feels like a 6 kind of day") == 6.0
+
+    def test_out_of_range_ignored(self):
+        assert _detect_proposed_score("around a 11") is None
+        assert _detect_proposed_score("around a 0") is None
+
+    def test_no_score_returns_none(self):
+        assert _detect_proposed_score("That sounds like a tough day.") is None
+
+    def test_snaps_to_half(self):
+        # 7.3 -> 7.5, but regex only captures one decimal so 7.3 matches as 7.3
+        assert _detect_proposed_score("around a 7") == 7.0
+        assert _detect_proposed_score("around a 7.5") == 7.5
+
+
+# ── Include Messages in Session Listing ─────────────────────────
+
+class TestSessionListingWithMessages:
+    def test_include_messages_returns_inline(self, db, user):
+        """include_messages=N returns messages for the N most recent sessions."""
+        s = JournalSession(
+            user_id=user.id,
+            started_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+        )
+        db.add(s)
+        db.flush()
+
+        save_message(db, s.id, user.id, "user", "Hello")
+        save_message(db, s.id, user.id, "assistant", "Hi there!")
+        db.commit()
+
+        # With include_messages=1
+        sessions = get_sessions_for_user(db, user.id, include_messages=1)
+        assert len(sessions) == 1
+        assert "messages" in sessions[0]
+        assert len(sessions[0]["messages"]) == 2
+        assert sessions[0]["messages"][0]["role"] == "user"
+
+    def test_no_include_messages_omits_key(self, db, user):
+        """Default: messages key is not present."""
+        s = JournalSession(
+            user_id=user.id,
+            started_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+        )
+        db.add(s)
+        db.flush()
+        save_message(db, s.id, user.id, "user", "Hello")
+        db.commit()
+
+        sessions = get_sessions_for_user(db, user.id)
+        assert "messages" not in sessions[0]
