@@ -54,6 +54,7 @@ export type SSEDoneEvent = {
   session_id: number;
   message_id: number;
   proposed_score?: number;
+  domain_checkin_due?: boolean;
 };
 
 export type SSEEvent = SSETokenEvent | SSEDoneEvent;

@@ -260,3 +260,99 @@ def update_life_domain_scores(
     )
 
     return score_row
+
+
+# ── Explicit Domain Check-in Update ──────────────────────────────
+
+EXPLICIT_ALPHA = 0.5  # Stronger weight for user's direct ratings
+
+def apply_explicit_domain_scores(
+    db: Session,
+    user_id: int,
+    domain_scores: Dict[str, float],
+    alpha: float = EXPLICIT_ALPHA,
+) -> LifeDomainScore:
+    """
+    Apply explicit user domain ratings via EMA.
+
+    Unlike update_life_domain_scores() which derives signals from
+    DailyCheckIn sliders/tags/companion, this takes raw backend-column
+    domain scores directly (from the weekly domain check-in card).
+
+    Uses a higher alpha (0.5) than the implicit 0.3, because the user's
+    direct rating is a stronger, more intentional signal.
+
+    Args:
+        db: Database session.
+        user_id: User ID.
+        domain_scores: {backend_column_name: score} e.g. {"career_work": 7.5}.
+        alpha: EMA weight for the explicit signal. Default 0.5.
+
+    Returns:
+        Updated LifeDomainScore row.
+    """
+    score_date = date.today().isoformat()
+
+    # Load or create today's score row
+    score_row = db.query(LifeDomainScore).filter(
+        LifeDomainScore.user_id == user_id,
+        LifeDomainScore.score_date == score_date,
+    ).first()
+
+    if not score_row:
+        # Carry forward from most recent
+        prev = (
+            db.query(LifeDomainScore)
+            .filter(LifeDomainScore.user_id == user_id)
+            .order_by(LifeDomainScore.score_date.desc())
+            .first()
+        )
+
+        score_row = LifeDomainScore(
+            user_id=user_id,
+            score_date=score_date,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        if prev:
+            for domain in LIFE_DOMAINS:
+                setattr(score_row, domain, getattr(prev, domain))
+        else:
+            # Cold start: explicitly set defaults (SQLAlchemy defaults don't apply in-memory)
+            for domain in LIFE_DOMAINS:
+                setattr(score_row, domain, DEFAULT_SCORE)
+
+        db.add(score_row)
+
+    # Apply EMA updates for provided domains only
+    derivation: Dict[str, Dict] = {}
+    for domain, signal in domain_scores.items():
+        if domain not in LIFE_DOMAINS:
+            logger.warning(f"Unknown domain '{domain}' in explicit scores, skipping")
+            continue
+        previous = getattr(score_row, domain, DEFAULT_SCORE) or DEFAULT_SCORE
+        new_score = ema_update(previous, signal, alpha=alpha)
+        score_row.set_score(domain, new_score)
+        derivation[domain] = {"signal_source": "explicit_checkin", "confidence": 1.0}
+
+    # Merge with existing derivation if present
+    existing_derivation = {}
+    if score_row.derivation_json:
+        try:
+            existing_derivation = json.loads(score_row.derivation_json) if isinstance(score_row.derivation_json, str) else score_row.derivation_json
+        except (json.JSONDecodeError, TypeError):
+            pass
+    existing_derivation.update(derivation)
+    score_row.derivation_json = json.dumps(existing_derivation)
+    score_row.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(score_row)
+
+    logger.info(
+        f"Explicit domain scores applied for user={user_id} date={score_date}: "
+        f"{len(domain_scores)} domains updated, total={score_row.total_score:.1f}/100"
+    )
+
+    return score_row

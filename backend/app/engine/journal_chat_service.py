@@ -324,6 +324,20 @@ async def stream_chat_response(
     if proposed_score is not None:
         done_payload['proposed_score'] = proposed_score
 
+    # Domain check-in trigger: only after 3+ user messages (same gate as score proposals)
+    try:
+        msg_count = db.query(JournalMessage).filter(
+            JournalMessage.session_id == session.id,
+            JournalMessage.role == "user",
+        ).count()
+        if msg_count >= 3:
+            from app.engine.domain_checkin_service import get_domain_checkin_status
+            dc_status = get_domain_checkin_status(db, user_id)
+            if dc_status["due"]:
+                done_payload["domain_checkin_due"] = True
+    except Exception as e:
+        logger.warning(f"Domain check-in status check failed (non-fatal): {e}")
+
     yield f"data: {json.dumps(done_payload)}\n\n"
 
     # ── Run analysis silently (non-streamed second call) ──
@@ -501,10 +515,10 @@ def confirm_daily_score(
     except Exception as e:
         logger.warning(f"Wellness score computation failed (non-fatal): {e}")
 
-    # 5. Run domain scoring
+    # 5. Run domain scoring (BUGFIX: was importing non-existent update_domain_scores)
     try:
-        from app.engine.life_domain_scorer import update_domain_scores
-        update_domain_scores(db, user_id, checkin)
+        from app.engine.life_domain_scorer import update_life_domain_scores
+        update_life_domain_scores(db, user_id, checkin)
     except Exception as e:
         logger.warning(f"Domain score update failed (non-fatal): {e}")
 

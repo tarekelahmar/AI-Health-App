@@ -40,6 +40,7 @@ from app.domain.models.user_preference import UserPreference
 from app.domain.models.milestone import Milestone
 from app.domain.models.journal_session import JournalSession
 from app.domain.models.journal_message import JournalMessage
+from app.domain.models.domain_checkin import DomainCheckin
 
 __all__ = [
     "User",
@@ -83,4 +84,5 @@ __all__ = [
     "Milestone",
     "JournalSession",
     "JournalMessage",
+    "DomainCheckin",
 ]

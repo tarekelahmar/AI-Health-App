@@ -64,6 +64,7 @@ from app.api.v1.journal_chat import router as journal_chat_router
 from app.api.v1.life_domains import router as life_domains_router
 from app.api.v1.preferences import router as preferences_router
 from app.api.v1.milestones import router as milestones_router
+from app.api.v1.domain_checkins import router as domain_checkins_router
 from app.integrations.health import router as providers_health_router
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -233,6 +234,7 @@ app.include_router(journal_chat_router)
 app.include_router(life_domains_router)
 app.include_router(preferences_router)
 app.include_router(milestones_router)
+app.include_router(domain_checkins_router)
 app.include_router(providers_health_router)
 
 # Observability

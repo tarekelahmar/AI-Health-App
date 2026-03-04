@@ -2,24 +2,26 @@
  * Journal V3 — Chat-first journal page.
  *
  * Tabs: Journal | Insights | Life Map
- * Journal tab: Trend chart + Chat thread + Input
- * Insights tab: Patterns + Correlations + Synthesis (Phase 2 will add sub-tabs)
+ * Journal tab: Trend chart + Chat thread (with DailyScoreCard + WeeklyDomainCard) + Input
+ * Insights tab: Sub-tabs (Factors | History | Actions)
  * Life Map tab: Life domain radar
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WellnessTimeline } from '../components/journal/WellnessTimeline';
-import { JournalInsights } from '../components/journal/JournalInsights';
 import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
-import { CorrelationChart } from '../components/journal/CorrelationChart';
-import { SynthesisCard } from '../components/journal/SynthesisCard';
 import { ChatThread } from '../components/journal/ChatThread';
 import { ChatInput } from '../components/journal/ChatInput';
 import { DailyScoreCard } from '../components/journal/DailyScoreCard';
+import { WeeklyDomainCard } from '../components/journal/WeeklyDomainCard';
+import { FactorsTab } from '../components/journal/FactorsTab';
+import { HistoryTab } from '../components/journal/HistoryTab';
+import { ActionsStub } from '../components/journal/ActionsStub';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
 import { getScoreHistory } from '../api/wellnessScore';
 import { getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
+import { getDomainCheckinStatus, submitDomainCheckin } from '../api/domainCheckins';
 import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
 import {
   sendMessage,
@@ -37,11 +39,18 @@ function todayISO(): string {
 }
 
 type Tab = 'journal' | 'insights' | 'lifemap';
+type InsightsSubTab = 'factors' | 'history' | 'actions';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'journal', label: 'Journal' },
   { key: 'insights', label: 'Insights' },
   { key: 'lifemap', label: 'Life Map' },
+];
+
+const INSIGHTS_SUB_TABS: { key: InsightsSubTab; label: string }[] = [
+  { key: 'factors', label: 'Factors' },
+  { key: 'history', label: 'History' },
+  { key: 'actions', label: 'Actions' },
 ];
 
 // Score proposal detection is handled server-side.
@@ -50,6 +59,7 @@ const TABS: { key: Tab; label: string }[] = [
 export default function JournalPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('journal');
+  const [insightsSubTab, setInsightsSubTab] = useState<InsightsSubTab>('factors');
 
   // Chat state
   const [sessionGroups, setSessionGroups] = useState<SessionGroup[]>([]);
@@ -61,6 +71,11 @@ export default function JournalPage() {
   // Score confirmation state: { [sessionId]: { proposed, confirmed, confirming } }
   const [scoreStates, setScoreStates] = useState<
     Record<number, { proposed: number; confirmed: boolean; confirming: boolean }>
+  >({});
+
+  // Domain check-in state: { [sessionId]: { pending, confirmed, confirming } }
+  const [domainCheckinStates, setDomainCheckinStates] = useState<
+    Record<number, { pending: boolean; confirmed: boolean; confirming: boolean }>
   >({});
 
   // Shared data
@@ -87,6 +102,7 @@ export default function JournalPage() {
       const [
         sessionsRes, historyRes, domainRes, domainHistRes,
         patternsRes, milestonesRes, synthesisRes, phasesRes,
+        dcStatusRes,
       ] = await Promise.allSettled([
         getSessions(30, 50),
         getScoreHistory(30),
@@ -96,10 +112,12 @@ export default function JournalPage() {
         getMilestones(),
         getWeeklySynthesis(),
         getWeeklyPhases(30),
+        getDomainCheckinStatus(),
       ]);
 
       // Build session groups from loaded sessions.
       // include_messages=50 returns messages inline — single request, no N+1.
+      let latestSessionId: number | undefined;
       if (sessionsRes.status === 'fulfilled') {
         const sessions = sessionsRes.value;
         const groups: SessionGroup[] = [];
@@ -129,12 +147,21 @@ export default function JournalPage() {
 
           // Track the most recent session
           if (groups.length === 1) {
+            latestSessionId = s.id;
             setCurrentSessionId(s.id);
           }
         }
 
         // Reverse so oldest is first (sessions come newest-first from API)
         setSessionGroups(groups.reverse());
+      }
+
+      // Restore domain check-in card on page reload
+      if (dcStatusRes.status === 'fulfilled' && dcStatusRes.value.due && latestSessionId) {
+        setDomainCheckinStates((prev) => ({
+          ...prev,
+          [latestSessionId!]: { pending: true, confirmed: false, confirming: false },
+        }));
       }
 
       if (historyRes.status === 'fulfilled') {
@@ -271,6 +298,14 @@ export default function JournalPage() {
             }));
           }
 
+          // Check if a domain check-in is due
+          if (data.domain_checkin_due && !domainCheckinStates[data.session_id]?.confirmed) {
+            setDomainCheckinStates((dc) => ({
+              ...dc,
+              [data.session_id]: { pending: true, confirmed: false, confirming: false },
+            }));
+          }
+
           return groups;
         });
       },
@@ -296,7 +331,7 @@ export default function JournalPage() {
     );
 
     abortRef.current = controller;
-  }, [inputText, isStreaming, currentSessionId, scoreStates]);
+  }, [inputText, isStreaming, currentSessionId, scoreStates, domainCheckinStates]);
 
   // ── Score confirmation ─────────────────────────────────────────
 
@@ -334,6 +369,48 @@ export default function JournalPage() {
       } catch (err) {
         console.error('Score confirmation failed:', err);
         setScoreStates((prev) => ({
+          ...prev,
+          [sessionId]: { ...prev[sessionId], confirming: false },
+        }));
+      }
+    },
+    [],
+  );
+
+  // ── Domain check-in confirmation ───────────────────────────────
+
+  const handleDomainCheckinConfirm = useCallback(
+    async (sessionId: number, scores: Record<string, number>) => {
+      setDomainCheckinStates((prev) => ({
+        ...prev,
+        [sessionId]: { ...prev[sessionId], confirming: true },
+      }));
+
+      try {
+        await submitDomainCheckin({
+          session_id: sessionId,
+          career: scores.career,
+          relationship: scores.relationship,
+          social: scores.social,
+          health: scores.health,
+          finance: scores.finance,
+        });
+
+        setDomainCheckinStates((prev) => ({
+          ...prev,
+          [sessionId]: { pending: true, confirmed: true, confirming: false },
+        }));
+
+        // Refresh domain scores
+        try {
+          const updated = await getCurrentDomainScores();
+          setDomainScores(updated);
+        } catch {
+          // Non-fatal
+        }
+      } catch (err) {
+        console.error('Domain check-in failed:', err);
+        setDomainCheckinStates((prev) => ({
           ...prev,
           [sessionId]: { ...prev[sessionId], confirming: false },
         }));
@@ -455,6 +532,19 @@ export default function JournalPage() {
                   />
                 );
               }}
+              renderDomainCard={(sessionId) => {
+                const state = domainCheckinStates[sessionId];
+                if (!state?.pending) return null;
+
+                return (
+                  <WeeklyDomainCard
+                    key={`domain-${sessionId}`}
+                    confirmed={state.confirmed}
+                    onConfirm={(scores) => handleDomainCheckinConfirm(sessionId, scores)}
+                    confirming={state.confirming}
+                  />
+                );
+              }}
             />
 
             {/* Chat input */}
@@ -470,34 +560,44 @@ export default function JournalPage() {
         {/* ── INSIGHTS TAB ── */}
         {activeTab === 'insights' && (
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-            <JournalInsights />
-            {patterns.length > 0 && <CorrelationChart patterns={patterns} />}
+            {/* Sub-tab pills */}
+            <div className="flex gap-1">
+              {INSIGHTS_SUB_TABS.map((sub) => (
+                <button
+                  key={sub.key}
+                  onClick={() => setInsightsSubTab(sub.key)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full transition-all ${
+                    insightsSubTab === sub.key
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-400 hover:text-gray-600 bg-gray-50'
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
 
-            {/* Timeline */}
-            {scoreHistory.length > 0 && (
-              <WellnessTimeline
-                scores={scoreHistory}
+            {/* Sub-tab content */}
+            {insightsSubTab === 'factors' && (
+              <FactorsTab patterns={patterns} />
+            )}
+
+            {insightsSubTab === 'history' && (
+              <HistoryTab
+                scoreHistory={scoreHistory}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
                 milestones={milestones}
                 phases={phases}
+                weeklySynthesis={weeklySynthesis}
+                sessionGroups={sessionGroups}
+                onExport={handleExport}
               />
             )}
 
-            {/* Weekly synthesis */}
-            {weeklySynthesis && Object.keys(weeklySynthesis).length > 0 && (
-              <SynthesisCard synthesis={weeklySynthesis} type="weekly" />
+            {insightsSubTab === 'actions' && (
+              <ActionsStub />
             )}
-
-            {/* Export button */}
-            <div className="text-center pt-2">
-              <button
-                onClick={handleExport}
-                className="text-xs text-gray-400 hover:text-gray-600 underline"
-              >
-                Export journal data
-              </button>
-            </div>
           </div>
         )}
 

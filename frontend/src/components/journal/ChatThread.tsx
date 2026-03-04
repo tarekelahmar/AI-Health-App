@@ -80,9 +80,11 @@ interface ChatThreadProps {
   sessionGroups: SessionGroup[];
   /** Inline children rendered at specific points (e.g., DailyScoreCard) */
   renderScoreCard?: (sessionId: number, proposedScore: number | null) => React.ReactNode;
+  /** Inline card for weekly domain check-in, rendered after score card */
+  renderDomainCard?: (sessionId: number) => React.ReactNode;
 }
 
-export function ChatThread({ sessionGroups, renderScoreCard }: ChatThreadProps) {
+export function ChatThread({ sessionGroups, renderScoreCard, renderDomainCard }: ChatThreadProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new messages
@@ -116,6 +118,8 @@ export function ChatThread({ sessionGroups, renderScoreCard }: ChatThreadProps) 
             ))}
             {/* Score card after the last assistant message if score was proposed */}
             {renderScoreCard && renderScoreCard(group.session_id, group.daily_score)}
+            {/* Domain check-in card after score card */}
+            {renderDomainCard && renderDomainCard(group.session_id)}
           </div>
         );
       })}
