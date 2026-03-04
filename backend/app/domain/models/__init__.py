@@ -1,5 +1,6 @@
 """Domain models - SQLAlchemy ORM models"""
 from app.domain.models.user import User
+from app.domain.models.baseline import Baseline
 from app.domain.models.lab_result import LabResult
 from app.domain.models.wearable_sample import WearableSample
 from app.domain.models.symptom import Symptom
@@ -24,6 +25,7 @@ from app.domain.models.data_provenance import DataProvenance
 from app.domain.models.consent import Consent
 from app.domain.models.driver_finding import DriverFinding
 from app.domain.models.personal_driver import PersonalDriver
+from app.domain.models.personal_pattern import PersonalPattern
 from app.domain.models.decision_signal import DecisionSignal
 from app.domain.models.causal_memory import CausalMemory
 from app.domain.models.explanation_edge import ExplanationEdge
@@ -36,6 +38,7 @@ from app.domain.models.wellness_score import WellnessScore
 
 __all__ = [
     "User",
+    "Baseline",
     "LabResult",
     "WearableSample",
     "Symptom",
@@ -60,6 +63,7 @@ __all__ = [
     "Consent",
     "DriverFinding",
     "PersonalDriver",
+    "PersonalPattern",
     "DecisionSignal",
     "CausalMemory",
     "ExplanationEdge",

@@ -225,8 +225,8 @@ def run_loop(db: Session, user_id: int) -> dict:
                 # Create "insufficient data" insight instead of silently skipping
                 insight = repo.create(
                     user_id=user_id,
-                    title=f"Insufficient data for {metric_key}",
-                    description=f"Not enough data points ({len(change_values)} < 5) to detect changes in {metric_key}. Please collect more data.",
+                    title=f"Insufficient data for {METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace('_', ' ').title()}",
+                    description=f"Not enough data points ({len(change_values)} < 5) to detect changes. Please collect more data.",
                     insight_type="insufficient_data",
                     confidence_score=1.0,  # High confidence that data is insufficient
                     metadata_json=json.dumps({
@@ -296,14 +296,12 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    # Use policy-compliant language
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Recent data shows {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'a change'} in {metric_key}."
+                    # Use human-readable, policy-compliant language
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    direction = evidence.get("direction", "")
+                    dir_word = "increased" if direction == "up" else "decreased" if direction == "down" else "changed"
+                    title = f"{display_name} has {dir_word}"
+                    summary = f"A change was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)  # Cap confidence to policy level
                 
                 # Persist evidence in a shape that satisfies invariants:
@@ -425,13 +423,11 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Data {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'shows a trend'} in {metric_key}."
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    direction = evidence.get("direction", "")
+                    dir_word = "trending up" if direction == "up" else "trending down" if direction == "down" else "showing a trend"
+                    title = f"{display_name} {dir_word}"
+                    summary = f"A trend was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)
                 
                 evidence_payload = dict(evidence)
@@ -537,13 +533,9 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Variability {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'has changed'} in {metric_key}."
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    title = f"{display_name} variability has changed"
+                    summary = f"Increased variability was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)
                 
                 evidence_payload = dict(evidence)
@@ -621,10 +613,11 @@ def run_loop(db: Session, user_id: int) -> dict:
                             "n_segments": cp_result.n_segments,
                             "method": cp_result.method,
                         }
-                        cp_title = f"{metric_key}: regime shift detected ({recent_cp.direction})"
+                        cp_display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                        cp_title = f"{cp_display_name}: structural shift detected"
                         cp_summary = (
-                            f"A structural change was detected in {metric_key}: "
-                            f"shifted from {recent_cp.before_mean:.1f} to {recent_cp.after_mean:.1f}."
+                            f"A structural change was detected in your {cp_display_name}: "
+                            f"values shifted from {recent_cp.before_mean:.1f} to {recent_cp.after_mean:.1f}."
                         )
                         cp_confidence = recent_cp.confidence
                         # Governance: cap by claim level

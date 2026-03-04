@@ -30,7 +30,7 @@ class ContributingFactorResponse(BaseModel):
     z_score: float
     weight: float
     direction: str
-    category: str
+    category: Optional[str] = None
 
 
 class WellnessScoreResponse(BaseModel):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.domain.models.personal_driver import PersonalDriver
@@ -97,7 +98,7 @@ class PersonalDriverRepository:
                 PersonalDriver.direction == "negative",
             )
             .order_by(
-                (PersonalDriver.confidence * abs(PersonalDriver.effect_size)).desc()
+                (PersonalDriver.confidence * func.abs(PersonalDriver.effect_size)).desc()
             )
             .limit(limit)
             .all()

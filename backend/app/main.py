@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 import os
 
 # Load environment variables from .env file (for os.getenv() calls)
-load_dotenv()
+# override=True ensures .env values take precedence over empty shell vars
+load_dotenv(override=True)
 
 from app.config.settings import get_settings, validate_config
 from app.config.logging import setup_logging

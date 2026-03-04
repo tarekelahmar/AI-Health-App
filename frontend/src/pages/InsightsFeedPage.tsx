@@ -210,31 +210,61 @@ export default function InsightsFeedPage() {
                   />
                 ) : null}
                 
-                {/* Confidence / Uncertainty */}
+                {/* Confidence */}
                 {insight.confidence !== undefined && (
                   <div className="mb-2">
                     <div className="flex items-center gap-2 text-xs text-gray-600">
                       <span>Confidence: {Math.round(insight.confidence * 100)}%</span>
-                      {insight.uncertainty && (
-                        <span className="text-gray-500">• {insight.uncertainty}</span>
-                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Why? expandable section */}
-                {insight.evidence && (
-                  <details className="mt-2">
-                    <summary className="text-sm text-blue-600 cursor-pointer hover:text-blue-700">
-                      Why?
-                    </summary>
-                    <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
-                      <pre className="whitespace-pre-wrap">
-                        {JSON.stringify(insight.evidence, null, 2)}
-                      </pre>
-                    </div>
-                  </details>
-                )}
+                {/* Why? expandable section — human-readable explanation */}
+                <details className="mt-2">
+                  <summary className="text-sm text-teal-700 cursor-pointer hover:text-teal-800 font-medium">
+                    ▶ Why?
+                  </summary>
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-3">
+                    {/* Primary explanation */}
+                    {insight.explanation ? (
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        {insight.explanation}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-500 italic">
+                        No detailed explanation available for this insight.
+                      </p>
+                    )}
+
+                    {/* Uncertainty note */}
+                    {insight.uncertainty && (
+                      <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 p-2.5 rounded-md">
+                        <span className="shrink-0 mt-0.5 text-amber-500">ℹ</span>
+                        <span>{insight.uncertainty}</span>
+                      </div>
+                    )}
+
+                    {/* Suggested next step */}
+                    {insight.suggested_next_step && (
+                      <div className="flex items-start gap-2 text-xs text-gray-700 bg-teal-50 border border-teal-100 p-2.5 rounded-md">
+                        <span className="shrink-0 mt-0.5 text-teal-600">→</span>
+                        <span><span className="font-medium">Suggested next step:</span> {insight.suggested_next_step}</span>
+                      </div>
+                    )}
+
+                    {/* Raw evidence data — developer/advanced toggle */}
+                    {insight.evidence && Object.keys(insight.evidence).length > 0 && (
+                      <details className="mt-1">
+                        <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-500">
+                          View raw evidence data
+                        </summary>
+                        <pre className="mt-1 text-xs text-gray-500 bg-gray-100 p-2 rounded whitespace-pre-wrap overflow-x-auto">
+                          {JSON.stringify(insight.evidence, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                </details>
               </div>
             ))}
           </div>
