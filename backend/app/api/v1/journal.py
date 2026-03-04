@@ -213,6 +213,13 @@ def companion_analyze(
 
         db.commit()
 
+        # Update life domain scores based on companion analysis
+        try:
+            from app.engine.life_domain_scorer import update_life_domain_scores
+            update_life_domain_scores(db, user_id, checkin)
+        except Exception as e:
+            logger.error(f"Life domain scoring failed: {e}")
+
         # Log audit event
         _log_companion_audit(db, user_id, checkin.id, result)
 

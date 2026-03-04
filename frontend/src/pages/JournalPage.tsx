@@ -5,24 +5,30 @@ import { CompanionResponse } from '../components/journal/CompanionResponse';
 import { ScoreBreakdown } from '../components/journal/ScoreBreakdown';
 import { WellnessTimeline } from '../components/journal/WellnessTimeline';
 import { JournalInsights } from '../components/journal/JournalInsights';
+import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
+import { CorrelationChart } from '../components/journal/CorrelationChart';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
 import { getCheckIn, upsertCheckIn } from '../api/checkins';
-import { analyzeWithCompanion } from '../api/journalPatterns';
+import { analyzeWithCompanion, getJournalPatterns } from '../api/journalPatterns';
+import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { computeScore, getScoreHistory } from '../api/wellnessScore';
 import type { CheckIn } from '../types/CheckIn';
 import type { WellnessScore } from '../types/WellnessScore';
 import type { CompanionAnalyzeResponse } from '../types/CompanionResponse';
+import type { LifeDomainScoreData } from '../types/LifeDomain';
+import type { JournalPatternData } from '../types/JournalFactors';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-type Tab = 'today' | 'insights' | 'history';
+type Tab = 'today' | 'patterns' | 'life-map' | 'history';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'today', label: 'Today' },
-  { key: 'insights', label: 'Insights' },
+  { key: 'patterns', label: 'Patterns' },
+  { key: 'life-map', label: 'Life Map' },
   { key: 'history', label: 'History' },
 ];
 
@@ -38,21 +44,30 @@ export default function JournalPage() {
   const [companionResult, setCompanionResult] = useState<CompanionAnalyzeResponse | null>(null);
   const [analyzingCompanion, setAnalyzingCompanion] = useState(false);
 
+  // Life domains
+  const [domainScores, setDomainScores] = useState<LifeDomainScoreData | null>(null);
+  const [domainComparison, setDomainComparison] = useState<Record<string, number> | null>(null);
+
+  // Patterns
+  const [patterns, setPatterns] = useState<JournalPatternData[]>([]);
+
   const userId = parseInt(localStorage.getItem('user_id') || '1', 10);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [checkinRes, historyRes] = await Promise.allSettled([
+      const [checkinRes, historyRes, domainRes, domainHistRes, patternsRes] = await Promise.allSettled([
         getCheckIn(userId, todayISO()),
         getScoreHistory(30),
+        getCurrentDomainScores(),
+        getDomainScoreHistory(30),
+        getJournalPatterns(),
       ]);
 
       if (checkinRes.status === 'fulfilled') {
         const loaded = checkinRes.value;
         setCheckIn(loaded);
 
-        // If there's already a companion response from a previous save, show it
         if (loaded.ai_response_text) {
           setCompanionResult({
             extraction_method: 'llm',
@@ -83,6 +98,22 @@ export default function JournalPage() {
         const yesterdayISO = yesterday.toISOString().split('T')[0];
         const ys = history.find((s) => s.score_date === yesterdayISO);
         setYesterdayScore(ys ? ys.score : null);
+      }
+
+      if (domainRes.status === 'fulfilled') {
+        setDomainScores(domainRes.value);
+      }
+
+      if (domainHistRes.status === 'fulfilled') {
+        const hist = domainHistRes.value;
+        // Find the earliest entry for comparison overlay
+        if (hist.length > 0) {
+          setDomainComparison(hist[0].scores);
+        }
+      }
+
+      if (patternsRes.status === 'fulfilled') {
+        setPatterns(patternsRes.value);
       }
     } catch (err) {
       console.error('Failed to load journal data:', err);
@@ -119,21 +150,23 @@ export default function JournalPage() {
       });
       setCheckIn(savedCheckIn);
 
-      // Compute wellness score
       const score = await computeScore(todayISO());
       setTodayScore(score);
 
       const history = await getScoreHistory(30);
       setScoreHistory(history);
 
-      // Trigger companion analysis (non-blocking — show result when ready)
+      // Trigger companion analysis
       setAnalyzingCompanion(true);
       try {
         const companion = await analyzeWithCompanion(savedCheckIn.id);
         setCompanionResult(companion);
+
+        // Refresh domain scores (companion triggers EMA update)
+        const updated = await getCurrentDomainScores();
+        setDomainScores(updated);
       } catch (companionErr) {
         console.error('Companion analysis failed:', companionErr);
-        // Not a critical failure — check-in was already saved successfully
       } finally {
         setAnalyzingCompanion(false);
       }
@@ -223,7 +256,6 @@ export default function JournalPage() {
             saving={saving}
           />
 
-          {/* Companion response (appears after save) */}
           {analyzingCompanion && (
             <Card className="mt-3">
               <div className="flex items-center justify-center gap-2 py-3">
@@ -242,7 +274,37 @@ export default function JournalPage() {
         </>
       )}
 
-      {activeTab === 'insights' && <JournalInsights />}
+      {activeTab === 'patterns' && (
+        <>
+          <JournalInsights />
+          {patterns.length > 0 && <CorrelationChart patterns={patterns} />}
+        </>
+      )}
+
+      {activeTab === 'life-map' && (
+        <>
+          {domainScores ? (
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3 text-center">Life Domains</h3>
+              <LifeDomainRadar
+                current={domainScores.scores}
+                comparison={domainComparison}
+                totalScore={domainScores.total_score}
+                size={320}
+              />
+            </Card>
+          ) : (
+            <Card>
+              <div className="text-center py-10">
+                <div className="text-3xl mb-3">{'\uD83C\uDF10'}</div>
+                <p className="text-sm text-gray-400">
+                  Life domain scores will appear after your first journal entry.
+                </p>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
 
       {activeTab === 'history' && (
         <>
