@@ -46,17 +46,28 @@ def upsert_checkin(
 ):
     # Override payload.user_id with authenticated user_id (prevent spoofing)
     payload.user_id = user_id
+
+    # Compute word count from notes
+    word_count = len(payload.notes.split()) if payload.notes and payload.notes.strip() else None
+
     repo = DailyCheckInRepository(db)
     obj = repo.upsert_for_date(
         user_id=payload.user_id,
         checkin_date=payload.checkin_date,
-        sleep_quality=payload.sleep_quality,
+        # V2 slider fields
+        overall_wellbeing=payload.overall_wellbeing,
         energy=payload.energy,
         mood=payload.mood,
-        stress=payload.stress,
         focus=payload.focus,
+        connection=payload.connection,
+        # V1 deprecated fields (still accepted)
+        sleep_quality=payload.sleep_quality,
+        stress=payload.stress,
+        # Text & behaviors
         notes=payload.notes,
         behaviors_json=payload.behaviors_json,
+        # Metadata
+        word_count=word_count,
     )
     # Bridge: sync subjective data into HealthDataPoint for the insight pipeline
     sync_checkin_to_datapoints(db, obj)
@@ -81,11 +92,16 @@ def update_checkin(
     obj = repo.upsert_for_date(
         user_id=user_id,
         checkin_date=checkin_date,
-        sleep_quality=payload.sleep_quality,
+        # V2 fields
+        overall_wellbeing=payload.overall_wellbeing,
         energy=payload.energy,
         mood=payload.mood,
-        stress=payload.stress,
         focus=payload.focus,
+        connection=payload.connection,
+        # V1 deprecated
+        sleep_quality=payload.sleep_quality,
+        stress=payload.stress,
+        # Text & behaviors
         notes=payload.notes,
         behaviors_json=payload.behaviors_json if payload.behaviors_json is not None else None,
         adherence_rate=payload.adherence_rate,

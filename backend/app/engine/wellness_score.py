@@ -53,13 +53,26 @@ OBJECTIVE_SIGNALS: Dict[str, Tuple[float, bool, str]] = {
     "hrv": (0.00, True, "HRV (alias)"),  # Only used if hrv_rmssd absent
 }
 
-SUBJECTIVE_SIGNALS: Dict[str, Tuple[float, bool, str]] = {
+# V2 subjective signals (used when overall_wellbeing is present in data)
+SUBJECTIVE_SIGNALS_V2: Dict[str, Tuple[float, bool, str]] = {
+    "overall_wellbeing": (0.30, True, "Overall Wellbeing"),
+    "energy": (0.20, True, "Energy"),
+    "mood": (0.20, True, "Mood"),
+    "focus": (0.10, True, "Focus"),
+    "connection": (0.20, True, "Connection"),
+}
+
+# V1 subjective signals (fallback when overall_wellbeing absent)
+SUBJECTIVE_SIGNALS_V1: Dict[str, Tuple[float, bool, str]] = {
     "energy": (0.25, True, "Energy"),
     "mood": (0.25, True, "Mood"),
     "sleep_quality": (0.20, True, "Sleep Quality"),
     "stress": (0.20, False, "Stress"),
     "focus": (0.10, True, "Focus"),
 }
+
+# Default: V2 (used by service layer; the compute function selects dynamically)
+SUBJECTIVE_SIGNALS = SUBJECTIVE_SIGNALS_V2
 
 # Weighting between objective and subjective
 OBJECTIVE_WEIGHT = 0.60
@@ -140,6 +153,9 @@ def compute_wellness_score(
     """
     Compute composite wellness score from objective + subjective data.
 
+    Auto-detects V1 vs V2 check-in format by looking for overall_wellbeing
+    in the subjective values. Uses V2 weights when present, V1 fallback otherwise.
+
     Args:
         objective_values: metric_key -> current value (wearable data)
         subjective_values: metric_key -> current value (journal data, already on 1-5 scale)
@@ -148,11 +164,15 @@ def compute_wellness_score(
     Returns:
         WellnessScoreResult with composite score and breakdown
     """
+    # Auto-detect V1 vs V2 based on available subjective signals
+    is_v2 = "overall_wellbeing" in subjective_values
+    subj_signals = SUBJECTIVE_SIGNALS_V2 if is_v2 else SUBJECTIVE_SIGNALS_V1
+
     obj_z, obj_factors = _compute_category_z(
         OBJECTIVE_SIGNALS, objective_values, baselines, "objective"
     )
     subj_z, subj_factors = _compute_category_z(
-        SUBJECTIVE_SIGNALS, subjective_values, baselines, "subjective"
+        subj_signals, subjective_values, baselines, "subjective"
     )
 
     all_factors = obj_factors + subj_factors

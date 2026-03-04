@@ -10,37 +10,55 @@ interface SliderField {
   emoji: string;
   lowLabel: string;
   highLabel: string;
+  /** Calibration hint shown on hover (optional, only for overall_wellbeing) */
+  calibrationHint?: string;
 }
 
 const FIELDS: SliderField[] = [
+  {
+    key: 'overall_wellbeing',
+    label: 'Overall Wellbeing',
+    emoji: '\u{1F31F}',
+    lowLabel: 'Crisis',
+    highLabel: 'Thriving',
+    calibrationHint: '10 = Thriving | 7 = Good day | 5 = Neutral | 3 = Struggling | 1 = Crisis',
+  },
   { key: 'energy', label: 'Energy', emoji: '\u26a1', lowLabel: 'Exhausted', highLabel: 'Energized' },
   { key: 'mood', label: 'Mood', emoji: '\ud83d\ude0a', lowLabel: 'Low', highLabel: 'Great' },
-  { key: 'stress', label: 'Stress', emoji: '\ud83d\ude13', lowLabel: 'Calm', highLabel: 'Overwhelmed' },
   { key: 'focus', label: 'Focus', emoji: '\ud83c\udfaf', lowLabel: 'Scattered', highLabel: 'Sharp' },
-  { key: 'sleep_quality', label: 'Sleep Quality', emoji: '\ud83d\udca4', lowLabel: 'Terrible', highLabel: 'Amazing' },
+  { key: 'connection', label: 'Connection', emoji: '\ud83e\udd1d', lowLabel: 'Isolated', highLabel: 'Connected' },
 ];
+
+const DEFAULT_VALUE = 5.0;
+const SLIDER_MIN = 1.0;
+const SLIDER_MAX = 10.0;
+const SLIDER_STEP = 0.5;
 
 interface JournalFormProps {
   existingCheckIn: CheckIn | null;
   onSave: (data: {
+    overall_wellbeing: number;
     energy: number;
     mood: number;
-    stress: number;
     focus: number;
-    sleep_quality: number;
+    connection: number;
     notes: string;
     behaviors_json: Record<string, any>;
   }) => Promise<void>;
   saving: boolean;
 }
 
+function formatSliderValue(val: number): string {
+  return val % 1 === 0 ? val.toString() : val.toFixed(1);
+}
+
 export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProps) {
   const [values, setValues] = useState<Record<string, number>>({
-    energy: 5,
-    mood: 5,
-    stress: 5,
-    focus: 5,
-    sleep_quality: 5,
+    overall_wellbeing: DEFAULT_VALUE,
+    energy: DEFAULT_VALUE,
+    mood: DEFAULT_VALUE,
+    focus: DEFAULT_VALUE,
+    connection: DEFAULT_VALUE,
   });
   const [notes, setNotes] = useState('');
   const [factors, setFactors] = useState<Record<string, any>>({});
@@ -52,11 +70,26 @@ export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProp
 
   useEffect(() => {
     if (existingCheckIn) {
+      // Detect V2 entry (has overall_wellbeing) vs V1 entry
+      const isV2 = existingCheckIn.overall_wellbeing != null;
+
       const updated: Record<string, number> = {};
       for (const f of FIELDS) {
         const val = (existingCheckIn as any)[f.key];
-        updated[f.key] = val != null ? val : 5;
+        updated[f.key] = val != null ? val : DEFAULT_VALUE;
       }
+
+      // If loading a V1 entry, map old fields to reasonable V2 defaults
+      if (!isV2 && existingCheckIn.energy != null) {
+        // V1 was 0-10 int; V2 is 1.0-10.0. Approximate mapping:
+        // v2 = max(1, v1)  (since V1 0 maps to V2 1.0 minimum)
+        updated.overall_wellbeing = DEFAULT_VALUE; // No V1 equivalent
+        updated.energy = Math.max(SLIDER_MIN, existingCheckIn.energy ?? DEFAULT_VALUE);
+        updated.mood = Math.max(SLIDER_MIN, existingCheckIn.mood ?? DEFAULT_VALUE);
+        updated.focus = Math.max(SLIDER_MIN, existingCheckIn.focus ?? DEFAULT_VALUE);
+        updated.connection = DEFAULT_VALUE; // No V1 equivalent
+      }
+
       setValues(updated);
       setNotes(existingCheckIn.notes || '');
       if (existingCheckIn.behaviors_json && Object.keys(existingCheckIn.behaviors_json).length > 0) {
@@ -115,18 +148,21 @@ export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProp
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await onSave({
+      overall_wellbeing: values.overall_wellbeing,
       energy: values.energy,
       mood: values.mood,
-      stress: values.stress,
       focus: values.focus,
-      sleep_quality: values.sleep_quality,
+      connection: values.connection,
       notes,
       behaviors_json: factors,
     });
     setHasEdited(false);
   };
 
-  const isExisting = existingCheckIn && existingCheckIn.energy != null;
+  // Detect existing entry (V2 has overall_wellbeing, V1 has energy)
+  const isExisting = existingCheckIn && (
+    existingCheckIn.overall_wellbeing != null || existingCheckIn.energy != null
+  );
 
   return (
     <Card>
@@ -162,25 +198,30 @@ export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProp
           />
         </div>
 
-        {/* 3. Score sliders */}
+        {/* 3. Score sliders (V2: 1.0-10.0, step 0.5) */}
         <div className="space-y-3">
           {FIELDS.map((field) => (
             <div key={field.key}>
               <div className="flex items-center justify-between mb-0.5">
-                <label className="text-sm text-gray-600">
+                <label className="text-sm text-gray-600" title={field.calibrationHint}>
                   {field.emoji} {field.label}
+                  {field.calibrationHint && (
+                    <span className="ml-1 text-gray-300 cursor-help" title={field.calibrationHint}>
+                      ?
+                    </span>
+                  )}
                 </label>
-                <span className="text-sm font-medium text-gray-800 min-w-[2ch] text-right">
-                  {values[field.key]}
+                <span className="text-sm font-medium text-gray-800 min-w-[3ch] text-right">
+                  {formatSliderValue(values[field.key])}
                 </span>
               </div>
               <input
                 type="range"
-                min={0}
-                max={10}
-                step={1}
+                min={SLIDER_MIN}
+                max={SLIDER_MAX}
+                step={SLIDER_STEP}
                 value={values[field.key]}
-                onChange={(e) => handleSliderChange(field.key, parseInt(e.target.value, 10))}
+                onChange={(e) => handleSliderChange(field.key, parseFloat(e.target.value))}
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
               />
               <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">

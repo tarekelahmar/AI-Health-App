@@ -72,11 +72,11 @@ export default function JournalPage() {
   }, [loadData]);
 
   const handleSave = async (data: {
+    overall_wellbeing: number;
     energy: number;
     mood: number;
-    stress: number;
     focus: number;
-    sleep_quality: number;
+    connection: number;
     notes: string;
     behaviors_json: Record<string, any>;
   }) => {
@@ -85,11 +85,11 @@ export default function JournalPage() {
       const savedCheckIn = await upsertCheckIn({
         user_id: userId,
         checkin_date: todayISO(),
+        overall_wellbeing: data.overall_wellbeing,
         energy: data.energy,
         mood: data.mood,
-        stress: data.stress,
         focus: data.focus,
-        sleep_quality: data.sleep_quality,
+        connection: data.connection,
         notes: data.notes,
         behaviors_json: data.behaviors_json,
       });

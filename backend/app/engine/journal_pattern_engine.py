@@ -39,8 +39,14 @@ MIN_EFFECT_SIZE = 0.5             # Minimum Cohen's d for any pattern
 STRONG_EFFECT_SIZE = 0.8          # Cohen's d threshold for "boost" patterns
 MAX_COMBO_SIZE = 3                # Maximum factors in a combination
 
-# Score metrics we analyse (from DailyCheckIn, 0-10 scale)
-SCORE_METRICS = ["energy", "mood", "stress", "focus", "sleep_quality"]
+# V2 score metrics (1.0-10.0 float scale)
+SCORE_METRICS_V2 = ["overall_wellbeing", "energy", "mood", "focus", "connection"]
+
+# V1 score metrics (0-10 int scale, deprecated)
+SCORE_METRICS_V1 = ["energy", "mood", "stress", "focus", "sleep_quality"]
+
+# Default: V2 (compute_journal_patterns selects dynamically per entry)
+SCORE_METRICS = SCORE_METRICS_V2
 
 # Factors where True is "negative" (for crash detection)
 NEGATIVE_FACTORS = {"isolated", "alcohol", "caffeine_late", "late_screen"}
@@ -499,6 +505,7 @@ def compute_journal_patterns(
     )
 
     # Build day records — only include days with behaviors_json
+    # Separate V1 and V2 entries; pattern detection runs on the majority format
     days: List[DayRecord] = []
     for c in checkins:
         behaviors = c.behaviors_json or {}
@@ -507,13 +514,25 @@ def compute_journal_patterns(
         bool_factors = _get_boolean_factors(behaviors)
         if not bool_factors:
             continue
-        scores = {
-            "energy": c.energy,
-            "mood": c.mood,
-            "stress": c.stress,
-            "focus": c.focus,
-            "sleep_quality": c.sleep_quality,
-        }
+
+        # V2 entries have overall_wellbeing set
+        is_v2 = c.overall_wellbeing is not None
+        if is_v2:
+            scores = {
+                "overall_wellbeing": c.overall_wellbeing,
+                "energy": c.energy,
+                "mood": c.mood,
+                "focus": c.focus,
+                "connection": c.connection,
+            }
+        else:
+            scores = {
+                "energy": c.energy,
+                "mood": c.mood,
+                "stress": c.stress,
+                "focus": c.focus,
+                "sleep_quality": c.sleep_quality,
+            }
         days.append(DayRecord(
             checkin_date=c.checkin_date,
             factors=bool_factors,
@@ -533,9 +552,16 @@ def compute_journal_patterns(
             entries_needed=MIN_ENTRIES_FOR_PATTERNS,
         )
 
-    # Run all detectors across all metrics
+    # Determine which metrics are present across all days
+    # Use union of all score keys actually found in the data
+    available_metrics = set()
+    for d in days:
+        available_metrics.update(k for k, v in d.scores.items() if v is not None)
+    score_metrics = sorted(available_metrics) if available_metrics else SCORE_METRICS_V2
+
+    # Run all detectors across all available metrics
     all_patterns: List[JournalPattern] = []
-    for metric in SCORE_METRICS:
+    for metric in score_metrics:
         all_patterns.extend(_detect_floor_patterns(days, metric))
         all_patterns.extend(_detect_formula_patterns(days, metric))
         all_patterns.extend(_detect_crash_patterns(days, metric))
