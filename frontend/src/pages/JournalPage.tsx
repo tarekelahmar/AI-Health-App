@@ -7,7 +7,6 @@ import { WellnessTimeline } from '../components/journal/WellnessTimeline';
 import { JournalInsights } from '../components/journal/JournalInsights';
 import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
 import { CorrelationChart } from '../components/journal/CorrelationChart';
-import { JournalOnboarding } from '../components/journal/JournalOnboarding';
 import { SynthesisCard } from '../components/journal/SynthesisCard';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
@@ -15,7 +14,7 @@ import { getCheckIn, upsertCheckIn } from '../api/checkins';
 import { analyzeWithCompanion, getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { computeScore, getScoreHistory } from '../api/wellnessScore';
-import { getPreferences, updatePreferences } from '../api/preferences';
+import { getPreferences } from '../api/preferences';
 import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
 import type { CheckIn } from '../types/CheckIn';
 import type { WellnessScore } from '../types/WellnessScore';
@@ -57,7 +56,6 @@ export default function JournalPage() {
   const [patterns, setPatterns] = useState<JournalPatternData[]>([]);
 
   // Phase 4
-  const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [milestones, setMilestones] = useState<MilestoneData[]>([]);
   const [weeklySynthesis, setWeeklySynthesis] = useState<Record<string, any> | null>(null);
   const [phases, setPhases] = useState<PhaseData[]>([]);
@@ -133,11 +131,7 @@ export default function JournalPage() {
         setPatterns(patternsRes.value);
       }
 
-      if (prefRes.status === 'fulfilled') {
-        setOnboarded(prefRes.value.journal_onboarded);
-      } else {
-        setOnboarded(false);
-      }
+      // prefRes: preferences loaded for depth_level (used by companion)
 
       if (milestonesRes.status === 'fulfilled') {
         setMilestones(milestonesRes.value);
@@ -160,19 +154,6 @@ export default function JournalPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const handleOnboardingComplete = async (depthLevel: number) => {
-    try {
-      await updatePreferences({
-        preferred_depth_level: depthLevel,
-        journal_onboarded: true,
-      });
-      setOnboarded(true);
-    } catch (err) {
-      console.error('Failed to save preferences:', err);
-      setOnboarded(true); // Continue anyway
-    }
-  };
 
   const handleSave = async (data: {
     overall_wellbeing: number;
@@ -256,11 +237,6 @@ export default function JournalPage() {
         <LoadingSpinner />
       </div>
     );
-  }
-
-  // Show onboarding on first visit
-  if (onboarded === false) {
-    return <JournalOnboarding onComplete={handleOnboardingComplete} />;
   }
 
   return (
