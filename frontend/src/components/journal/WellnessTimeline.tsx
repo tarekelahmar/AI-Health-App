@@ -11,6 +11,8 @@ interface WellnessTimelineProps {
   onDateSelect: (date: string) => void;
   milestones?: MilestoneData[];
   phases?: PhaseData[];
+  /** Compact mode: smaller chart for embedding in chat view */
+  compact?: boolean;
 }
 
 function scoreColor(score: number): string {
@@ -87,7 +89,7 @@ const PHASE_COLORS: Record<string, string> = {
   GROWING: 'rgba(139,92,246,0.08)',     // purple-500 at 8%
 };
 
-export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestones = [], phases = [] }: WellnessTimelineProps) {
+export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestones = [], phases = [], compact = false }: WellnessTimelineProps) {
   const chartRef = useRef<SVGSVGElement>(null);
   const recent = scores.slice(0, 7).reverse();
   const metrics = computeMetrics(scores);
@@ -100,7 +102,7 @@ export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestone
     svg.selectAll('*').remove();
 
     const width = chartRef.current.clientWidth || 320;
-    const height = 120;
+    const height = compact ? 80 : 120;
     const margin = { top: 8, right: 8, bottom: 20, left: 30 };
     const innerW = width - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;

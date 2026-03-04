@@ -1,119 +1,160 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { WellnessScoreRing } from '../components/journal/WellnessScoreRing';
-import { JournalForm } from '../components/journal/JournalForm';
-import { CompanionResponse } from '../components/journal/CompanionResponse';
-import { ScoreBreakdown } from '../components/journal/ScoreBreakdown';
+/**
+ * Journal V3 — Chat-first journal page.
+ *
+ * Tabs: Journal | Insights | Life Map
+ * Journal tab: Trend chart + Chat thread + Input
+ * Insights tab: Patterns + Correlations + Synthesis (Phase 2 will add sub-tabs)
+ * Life Map tab: Life domain radar
+ */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WellnessTimeline } from '../components/journal/WellnessTimeline';
 import { JournalInsights } from '../components/journal/JournalInsights';
 import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
 import { CorrelationChart } from '../components/journal/CorrelationChart';
 import { SynthesisCard } from '../components/journal/SynthesisCard';
+import { ChatThread } from '../components/journal/ChatThread';
+import { ChatInput } from '../components/journal/ChatInput';
+import { DailyScoreCard } from '../components/journal/DailyScoreCard';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
-import { getCheckIn, upsertCheckIn } from '../api/checkins';
-import { analyzeWithCompanion, getJournalPatterns } from '../api/journalPatterns';
+import { getScoreHistory } from '../api/wellnessScore';
+import { getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
-import { computeScore, getScoreHistory } from '../api/wellnessScore';
-import { getPreferences } from '../api/preferences';
 import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
-import type { CheckIn } from '../types/CheckIn';
+import {
+  sendMessage,
+  confirmDailyScore,
+  getSessions,
+  getSessionMessages,
+} from '../api/journalChat';
 import type { WellnessScore } from '../types/WellnessScore';
-import type { CompanionAnalyzeResponse } from '../types/CompanionResponse';
 import type { LifeDomainScoreData } from '../types/LifeDomain';
 import type { JournalPatternData } from '../types/JournalFactors';
 import type { MilestoneData, PhaseData } from '../api/milestones';
+import type { SessionGroup, ChatMessageData } from '../types/JournalChat';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-type Tab = 'today' | 'patterns' | 'life-map' | 'history';
+type Tab = 'journal' | 'insights' | 'lifemap';
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: 'patterns', label: 'Patterns' },
-  { key: 'life-map', label: 'Life Map' },
-  { key: 'history', label: 'History' },
+  { key: 'journal', label: 'Journal' },
+  { key: 'insights', label: 'Insights' },
+  { key: 'lifemap', label: 'Life Map' },
 ];
+
+// Score proposal detection: match "around a X" or "around a X.X" patterns
+const SCORE_PROPOSAL_REGEX = /around a (\d+(?:\.\d)?)/i;
+
+function parseProposedScore(text: string): number | null {
+  const match = text.match(SCORE_PROPOSAL_REGEX);
+  if (match) {
+    const score = parseFloat(match[1]);
+    if (score >= 1 && score <= 10) {
+      // Round to nearest 0.5
+      return Math.round(score * 2) / 2;
+    }
+  }
+  return null;
+}
 
 export default function JournalPage() {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [checkIn, setCheckIn] = useState<CheckIn | null>(null);
-  const [todayScore, setTodayScore] = useState<WellnessScore | null>(null);
-  const [yesterdayScore, setYesterdayScore] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('journal');
+
+  // Chat state
+  const [sessionGroups, setSessionGroups] = useState<SessionGroup[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<number | undefined>(undefined);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Score confirmation state: { [sessionId]: { proposed, confirmed, confirming } }
+  const [scoreStates, setScoreStates] = useState<
+    Record<number, { proposed: number; confirmed: boolean; confirming: boolean }>
+  >({});
+
+  // Shared data
   const [scoreHistory, setScoreHistory] = useState<WellnessScore[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
-  const [activeTab, setActiveTab] = useState<Tab>('today');
-  const [companionResult, setCompanionResult] = useState<CompanionAnalyzeResponse | null>(null);
-  const [analyzingCompanion, setAnalyzingCompanion] = useState(false);
+  const [milestones, setMilestones] = useState<MilestoneData[]>([]);
+  const [phases, setPhases] = useState<PhaseData[]>([]);
 
   // Life domains
   const [domainScores, setDomainScores] = useState<LifeDomainScoreData | null>(null);
   const [domainComparison, setDomainComparison] = useState<Record<string, number> | null>(null);
 
-  // Patterns
+  // Patterns / insights
   const [patterns, setPatterns] = useState<JournalPatternData[]>([]);
-
-  // Phase 4
-  const [milestones, setMilestones] = useState<MilestoneData[]>([]);
   const [weeklySynthesis, setWeeklySynthesis] = useState<Record<string, any> | null>(null);
-  const [phases, setPhases] = useState<PhaseData[]>([]);
 
-  const userId = parseInt(localStorage.getItem('user_id') || '1', 10);
+  const todayScore = scoreHistory.find((s) => s.score_date === todayISO());
+
+  // ── Load initial data ──────────────────────────────────────────
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [
-        checkinRes, historyRes, domainRes, domainHistRes,
-        patternsRes, prefRes, milestonesRes, synthesisRes, phasesRes,
+        sessionsRes, historyRes, domainRes, domainHistRes,
+        patternsRes, milestonesRes, synthesisRes, phasesRes,
       ] = await Promise.allSettled([
-        getCheckIn(userId, todayISO()),
+        getSessions(30),
         getScoreHistory(30),
         getCurrentDomainScores(),
         getDomainScoreHistory(30),
         getJournalPatterns(),
-        getPreferences(),
         getMilestones(),
         getWeeklySynthesis(),
         getWeeklyPhases(30),
       ]);
 
-      if (checkinRes.status === 'fulfilled') {
-        const loaded = checkinRes.value;
-        setCheckIn(loaded);
+      // Build session groups from loaded sessions
+      if (sessionsRes.status === 'fulfilled') {
+        const sessions = sessionsRes.value;
+        const groups: SessionGroup[] = [];
 
-        if (loaded.ai_response_text) {
-          setCompanionResult({
-            extraction_method: 'llm',
-            depth_level: loaded.depth_level ?? 2,
-            factors: loaded.behaviors_json || {},
-            custom_factors: [],
-            ai_inferred: loaded.ai_inferred_json as any ?? null,
-            context_tags: loaded.context_tags_json as any ?? null,
-            companion_response: {
-              text: loaded.ai_response_text,
-              pattern_referenced: false,
-              discrepancy_noted: loaded.discrepancy_json?.flag ?? false,
-            },
-            discrepancies: loaded.discrepancy_json?.discrepancies ?? [],
-          });
+        for (const s of sessions) {
+          try {
+            const messages = await getSessionMessages(s.id);
+            groups.push({
+              session_id: s.id,
+              started_at: s.started_at,
+              daily_score: s.daily_score,
+              score_confirmed: s.daily_score !== null,
+              messages: messages.map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                created_at: m.created_at,
+              })),
+            });
+
+            // Track score state for sessions with confirmed scores
+            if (s.daily_score !== null) {
+              setScoreStates((prev) => ({
+                ...prev,
+                [s.id]: { proposed: s.daily_score!, confirmed: true, confirming: false },
+              }));
+            }
+
+            // Track the most recent session
+            if (groups.length === 1) {
+              setCurrentSessionId(s.id);
+            }
+          } catch {
+            // Session message fetch failed — skip
+          }
         }
+
+        // Reverse so oldest is first (sessions come newest-first from API)
+        setSessionGroups(groups.reverse());
       }
 
       if (historyRes.status === 'fulfilled') {
-        const history = historyRes.value;
-        setScoreHistory(history);
-
-        const today = history.find((s) => s.score_date === todayISO());
-        setTodayScore(today || null);
-
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayISO = yesterday.toISOString().split('T')[0];
-        const ys = history.find((s) => s.score_date === yesterdayISO);
-        setYesterdayScore(ys ? ys.score : null);
+        setScoreHistory(historyRes.value);
       }
 
       if (domainRes.status === 'fulfilled') {
@@ -131,8 +172,6 @@ export default function JournalPage() {
         setPatterns(patternsRes.value);
       }
 
-      // prefRes: preferences loaded for depth_level (used by companion)
-
       if (milestonesRes.status === 'fulfilled') {
         setMilestones(milestonesRes.value);
       }
@@ -149,66 +188,178 @@ export default function JournalPage() {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const handleSave = async (data: {
-    overall_wellbeing: number;
-    energy: number;
-    mood: number;
-    focus: number;
-    connection: number;
-    notes: string;
-    behaviors_json: Record<string, any>;
-  }) => {
-    setSaving(true);
-    try {
-      const savedCheckIn = await upsertCheckIn({
-        user_id: userId,
-        checkin_date: todayISO(),
-        overall_wellbeing: data.overall_wellbeing,
-        energy: data.energy,
-        mood: data.mood,
-        focus: data.focus,
-        connection: data.connection,
-        notes: data.notes,
-        behaviors_json: data.behaviors_json,
-      });
-      setCheckIn(savedCheckIn);
+  // ── Send message ───────────────────────────────────────────────
 
-      const score = await computeScore(todayISO());
-      setTodayScore(score);
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text || isStreaming) return;
 
-      const history = await getScoreHistory(30);
-      setScoreHistory(history);
+    setInputText('');
+    setIsStreaming(true);
 
-      // Trigger companion analysis
-      setAnalyzingCompanion(true);
-      try {
-        const companion = await analyzeWithCompanion(savedCheckIn.id);
-        setCompanionResult(companion);
+    // Optimistically add user message to the UI
+    const userMsg: ChatMessageData = {
+      id: null,
+      role: 'user',
+      content: text,
+      created_at: new Date().toISOString(),
+    };
 
-        // Refresh domain scores and milestones (companion triggers EMA update + milestone detection)
-        const [updated, freshMilestones] = await Promise.all([
-          getCurrentDomainScores(),
-          getMilestones(),
-        ]);
-        setDomainScores(updated);
-        setMilestones(freshMilestones);
-      } catch (companionErr) {
-        console.error('Companion analysis failed:', companionErr);
-      } finally {
-        setAnalyzingCompanion(false);
+    // Add streaming placeholder for assistant
+    const streamingMsg: ChatMessageData = {
+      id: null,
+      role: 'assistant',
+      content: '',
+      created_at: new Date().toISOString(),
+      isStreaming: true,
+    };
+
+    setSessionGroups((prev) => {
+      const groups = [...prev];
+      if (groups.length > 0 && groups[groups.length - 1].session_id === currentSessionId) {
+        // Add to existing session
+        const last = { ...groups[groups.length - 1] };
+        last.messages = [...last.messages, userMsg, streamingMsg];
+        groups[groups.length - 1] = last;
+      } else {
+        // New session will be created by the backend — add a temporary group
+        groups.push({
+          session_id: currentSessionId ?? -1,
+          started_at: new Date().toISOString(),
+          daily_score: null,
+          score_confirmed: false,
+          messages: [userMsg, streamingMsg],
+        });
       }
-    } catch (err) {
-      console.error('Failed to save check-in:', err);
-    } finally {
-      setSaving(false);
-    }
-  };
+      return groups;
+    });
+
+    // Start SSE stream
+    const controller = sendMessage(
+      text,
+      currentSessionId,
+      // onToken
+      (token) => {
+        setSessionGroups((prev) => {
+          const groups = [...prev];
+          const lastGroup = { ...groups[groups.length - 1] };
+          const msgs = [...lastGroup.messages];
+          const lastMsg = { ...msgs[msgs.length - 1] };
+          lastMsg.content += token;
+          msgs[msgs.length - 1] = lastMsg;
+          lastGroup.messages = msgs;
+          groups[groups.length - 1] = lastGroup;
+          return groups;
+        });
+      },
+      // onDone
+      (data) => {
+        setIsStreaming(false);
+        setCurrentSessionId(data.session_id);
+
+        // Finalize the streaming message
+        setSessionGroups((prev) => {
+          const groups = [...prev];
+          const lastGroup = { ...groups[groups.length - 1] };
+
+          // Update session_id if it was temporary
+          lastGroup.session_id = data.session_id;
+
+          const msgs = [...lastGroup.messages];
+          const lastMsg = { ...msgs[msgs.length - 1] };
+          lastMsg.id = data.message_id;
+          lastMsg.isStreaming = false;
+          msgs[msgs.length - 1] = lastMsg;
+          lastGroup.messages = msgs;
+          groups[groups.length - 1] = lastGroup;
+
+          // Check if the assistant proposed a score
+          const proposedScore = parseProposedScore(lastMsg.content);
+          if (proposedScore !== null && !scoreStates[data.session_id]?.confirmed) {
+            setScoreStates((ss) => ({
+              ...ss,
+              [data.session_id]: { proposed: proposedScore, confirmed: false, confirming: false },
+            }));
+          }
+
+          return groups;
+        });
+      },
+      // onError
+      (error) => {
+        setIsStreaming(false);
+        console.error('Chat stream error:', error);
+
+        // Update streaming message with error
+        setSessionGroups((prev) => {
+          const groups = [...prev];
+          const lastGroup = { ...groups[groups.length - 1] };
+          const msgs = [...lastGroup.messages];
+          const lastMsg = { ...msgs[msgs.length - 1] };
+          lastMsg.content = lastMsg.content || 'Failed to get a response. Please try again.';
+          lastMsg.isStreaming = false;
+          msgs[msgs.length - 1] = lastMsg;
+          lastGroup.messages = msgs;
+          groups[groups.length - 1] = lastGroup;
+          return groups;
+        });
+      },
+    );
+
+    abortRef.current = controller;
+  }, [inputText, isStreaming, currentSessionId, scoreStates]);
+
+  // ── Score confirmation ─────────────────────────────────────────
+
+  const handleScoreConfirm = useCallback(
+    async (sessionId: number, score: number) => {
+      setScoreStates((prev) => ({
+        ...prev,
+        [sessionId]: { ...prev[sessionId], confirming: true },
+      }));
+
+      try {
+        await confirmDailyScore(sessionId, score);
+
+        setScoreStates((prev) => ({
+          ...prev,
+          [sessionId]: { proposed: score, confirmed: true, confirming: false },
+        }));
+
+        // Update the session group
+        setSessionGroups((prev) =>
+          prev.map((g) =>
+            g.session_id === sessionId
+              ? { ...g, daily_score: score, score_confirmed: true }
+              : g,
+          ),
+        );
+
+        // Refresh score history
+        try {
+          const history = await getScoreHistory(30);
+          setScoreHistory(history);
+        } catch {
+          // Non-fatal
+        }
+      } catch (err) {
+        console.error('Score confirmation failed:', err);
+        setScoreStates((prev) => ({
+          ...prev,
+          [sessionId]: { ...prev[sessionId], confirming: false },
+        }));
+      }
+    },
+    [],
+  );
+
+  // ── Export ──────────────────────────────────────────────────────
 
   const handleExport = async () => {
     try {
@@ -229,7 +380,7 @@ export default function JournalPage() {
     setSelectedDate(date);
   };
 
-  const selectedScore = scoreHistory.find((s) => s.score_date === selectedDate) || todayScore;
+  // ── Render ─────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -240,54 +391,44 @@ export default function JournalPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full">
       {/* Page header */}
-      <div className="text-center">
-        <h1 className="text-lg font-bold text-gray-900">Journal</h1>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-      </div>
-
-      {/* Wellness Score Ring */}
-      <Card className="flex flex-col items-center py-6">
-        <WellnessScoreRing
-          score={todayScore?.score ?? null}
-          size={160}
-          yesterdayScore={yesterdayScore}
-        />
-        {todayScore && (
-          <div className="flex items-center gap-4 mt-3">
-            {todayScore.objective_score != null && (
-              <div className="text-center">
-                <div className="text-xs text-gray-400">Wearable</div>
-                <div className="text-sm font-semibold text-blue-600">
-                  {Math.round(todayScore.objective_score)}
+      <div className="px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-bold text-gray-900">Journal</h1>
+          <div className="flex items-center gap-2">
+            {todayScore && (
+              <>
+                <div className="text-right">
+                  <div className="text-xs text-gray-400">Today</div>
+                  <div
+                    className={`text-sm font-semibold ${
+                      todayScore.score >= 70
+                        ? 'text-green-600'
+                        : todayScore.score >= 50
+                          ? 'text-amber-500'
+                          : 'text-red-500'
+                    }`}
+                  >
+                    {Math.round(todayScore.score)}
+                  </div>
                 </div>
-              </div>
-            )}
-            {todayScore.subjective_score != null && (
-              <div className="text-center">
-                <div className="text-xs text-gray-400">Journal</div>
-                <div className="text-sm font-semibold text-purple-600">
-                  {Math.round(todayScore.subjective_score)}
-                </div>
-              </div>
+              </>
             )}
           </div>
-        )}
-      </Card>
+        </div>
+      </div>
 
-      {/* Tab navigation */}
-      <div className="flex bg-gray-100 rounded-lg p-0.5">
+      {/* Tabs */}
+      <div className="px-4 flex gap-1 mb-1">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 py-2 text-xs font-medium rounded-md transition-colors ${
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
               activeTab === tab.key
-                ? 'bg-white text-gray-800 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-gray-200 text-gray-800'
+                : 'text-gray-400 hover:text-gray-600'
             }`}
           >
             {tab.label}
@@ -296,102 +437,115 @@ export default function JournalPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'today' && (
-        <>
-          <JournalForm
-            existingCheckIn={checkIn}
-            onSave={handleSave}
-            saving={saving}
-          />
-
-          {analyzingCompanion && (
-            <Card className="mt-3">
-              <div className="flex items-center justify-center gap-2 py-3">
-                <LoadingSpinner />
-                <span className="text-xs text-gray-400">Analysing your entry...</span>
+      <div className="flex-1 overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
+        {/* ── JOURNAL TAB ── */}
+        {activeTab === 'journal' && (
+          <div className="flex flex-col h-full">
+            {/* Trend chart */}
+            {scoreHistory.length > 0 && (
+              <div className="px-4 py-2 border-b border-gray-100">
+                <WellnessTimeline
+                  scores={scoreHistory}
+                  selectedDate={selectedDate}
+                  onDateSelect={handleDateSelect}
+                  milestones={milestones}
+                  phases={phases}
+                  compact
+                />
               </div>
-            </Card>
-          )}
-          {!analyzingCompanion && companionResult && (
-            <CompanionResponse result={companionResult} />
-          )}
+            )}
 
-          {selectedScore && (
-            <ScoreBreakdown factors={selectedScore.contributing_factors} />
-          )}
-        </>
-      )}
+            {/* Chat thread */}
+            <ChatThread
+              sessionGroups={sessionGroups}
+              renderScoreCard={(sessionId, _dailyScore) => {
+                const state = scoreStates[sessionId];
+                if (!state) return null;
 
-      {activeTab === 'patterns' && (
-        <>
-          <JournalInsights />
-          {patterns.length > 0 && <CorrelationChart patterns={patterns} />}
-        </>
-      )}
-
-      {activeTab === 'life-map' && (
-        <>
-          {domainScores ? (
-            <Card>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 text-center">Life Domains</h3>
-              <LifeDomainRadar
-                current={domainScores.scores}
-                comparison={domainComparison}
-                totalScore={domainScores.total_score}
-                size={320}
-              />
-            </Card>
-          ) : (
-            <Card>
-              <div className="text-center py-10">
-                <div className="text-3xl mb-3">{'\uD83C\uDF10'}</div>
-                <p className="text-sm text-gray-400">
-                  Life domain scores will appear after your first journal entry.
-                </p>
-              </div>
-            </Card>
-          )}
-        </>
-      )}
-
-      {activeTab === 'history' && (
-        <>
-          {scoreHistory.length > 0 ? (
-            <WellnessTimeline
-              scores={scoreHistory}
-              selectedDate={selectedDate}
-              onDateSelect={handleDateSelect}
-              milestones={milestones}
-              phases={phases}
+                return (
+                  <DailyScoreCard
+                    key={`score-${sessionId}`}
+                    proposedScore={state.proposed}
+                    confirmed={state.confirmed}
+                    onConfirm={(score) => handleScoreConfirm(sessionId, score)}
+                    confirming={state.confirming}
+                  />
+                );
+              }}
             />
-          ) : (
-            <div className="text-center py-10">
-              <div className="text-3xl mb-3">{'\uD83D\uDCCA'}</div>
-              <p className="text-sm text-gray-400">
-                No history yet. Save your first check-in to start tracking.
-              </p>
-            </div>
-          )}
-          {selectedScore && selectedDate !== todayISO() && (
-            <ScoreBreakdown factors={selectedScore.contributing_factors} />
-          )}
 
-          {/* Weekly synthesis */}
-          {weeklySynthesis && Object.keys(weeklySynthesis).length > 0 && (
-            <SynthesisCard synthesis={weeklySynthesis} type="weekly" />
-          )}
-
-          {/* Export button */}
-          <div className="text-center pt-2">
-            <button
-              onClick={handleExport}
-              className="text-xs text-gray-400 hover:text-gray-600 underline"
-            >
-              Export journal data
-            </button>
+            {/* Chat input */}
+            <ChatInput
+              value={inputText}
+              onChange={setInputText}
+              onSend={handleSend}
+              disabled={isStreaming}
+            />
           </div>
-        </>
-      )}
+        )}
+
+        {/* ── INSIGHTS TAB ── */}
+        {activeTab === 'insights' && (
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            <JournalInsights />
+            {patterns.length > 0 && <CorrelationChart patterns={patterns} />}
+
+            {/* Timeline */}
+            {scoreHistory.length > 0 && (
+              <WellnessTimeline
+                scores={scoreHistory}
+                selectedDate={selectedDate}
+                onDateSelect={handleDateSelect}
+                milestones={milestones}
+                phases={phases}
+              />
+            )}
+
+            {/* Weekly synthesis */}
+            {weeklySynthesis && Object.keys(weeklySynthesis).length > 0 && (
+              <SynthesisCard synthesis={weeklySynthesis} type="weekly" />
+            )}
+
+            {/* Export button */}
+            <div className="text-center pt-2">
+              <button
+                onClick={handleExport}
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
+              >
+                Export journal data
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── LIFE MAP TAB ── */}
+        {activeTab === 'lifemap' && (
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+            {domainScores ? (
+              <Card>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 text-center">
+                  Life Domains
+                </h3>
+                <LifeDomainRadar
+                  current={domainScores.scores}
+                  comparison={domainComparison}
+                  totalScore={domainScores.total_score}
+                  size={320}
+                />
+              </Card>
+            ) : (
+              <Card>
+                <div className="text-center py-10">
+                  <div className="text-3xl mb-3">{'\uD83C\uDF10'}</div>
+                  <p className="text-sm text-gray-400">
+                    Life domain scores will appear after your first journal entry.
+                  </p>
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
