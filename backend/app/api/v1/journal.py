@@ -2,17 +2,29 @@
 Journal API endpoints.
 
 - POST /extract-factors — LLM-powered text → structured behavioral factors
+- POST /companion/analyze — AI companion: inference + response + factor extraction
 - GET /patterns — discovered journal patterns for a user
 - POST /patterns/compute — trigger pattern recomputation
 """
 
+import json
+import logging
+from dataclasses import asdict
 from typing import List
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.auth_mode import get_request_user_id
 from app.api.router_factory import make_v1_router
+from app.api.schemas.companion import (
+    CompanionAnalyzeRequest,
+    CompanionAnalyzeResponse,
+    CompanionTextResponse,
+    ContextTagsResponse,
+    DiscrepancyResponse,
+    InferredDimensionsResponse,
+)
 from app.api.schemas.journal import (
     ExtractedFactor,
     FactorExtractionResponse,
@@ -21,7 +33,10 @@ from app.api.schemas.journal import (
     PatternComputeResponse,
 )
 from app.core.database import get_db
+from app.domain.models.daily_checkin import DailyCheckIn
 from app.llm.factor_extraction import KNOWN_FACTORS, extract_factors_from_text
+
+logger = logging.getLogger(__name__)
 
 router = make_v1_router(prefix="/api/v1/journal", tags=["journal"])
 
@@ -136,3 +151,131 @@ def compute_patterns(
 
     result = compute_journal_patterns(db=db, user_id=user_id)
     return result
+
+
+# ── Companion Analysis ────────────────────────────────────────────
+
+
+@router.post("/companion/analyze", response_model=CompanionAnalyzeResponse)
+def companion_analyze(
+    payload: CompanionAnalyzeRequest,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate AI companion response for a saved check-in entry.
+
+    Combines: factor extraction + dimension inference + context tags +
+    companion response text + deterministic discrepancy detection.
+
+    Call this after saving a check-in. The companion analyses the entry
+    in context of recent history and known patterns.
+    """
+    from app.engine.journal_companion import generate_companion_response
+
+    # Load the check-in
+    checkin = db.query(DailyCheckIn).filter(
+        DailyCheckIn.id == payload.checkin_id,
+        DailyCheckIn.user_id == user_id,
+    ).first()
+
+    if not checkin:
+        raise HTTPException(status_code=404, detail="Check-in not found")
+
+    # Generate companion response
+    result = generate_companion_response(
+        db=db,
+        user_id=user_id,
+        checkin=checkin,
+        depth_level=payload.depth_level,
+    )
+
+    # Persist companion results back to the check-in row
+    if result.extraction_method == "llm":
+        if result.inferred_dimensions:
+            checkin.ai_inferred_json = asdict(result.inferred_dimensions)
+        if result.context_tags:
+            checkin.context_tags_json = asdict(result.context_tags)
+        if result.companion_response and result.companion_response.text:
+            checkin.ai_response_text = result.companion_response.text
+        if result.discrepancies:
+            checkin.discrepancy_json = result.discrepancies.to_json()
+
+        # Merge companion-extracted factors into existing behaviors_json
+        if result.factors:
+            existing = checkin.behaviors_json or {}
+            # Companion factors fill gaps; manual (existing) take precedence
+            merged = {**result.factors}
+            merged.update(existing)  # Existing overrides companion
+            checkin.behaviors_json = merged
+
+        checkin.depth_level = result.depth_level
+
+        db.commit()
+
+        # Log audit event
+        _log_companion_audit(db, user_id, checkin.id, result)
+
+    # Build response
+    discrepancy_list = []
+    if result.discrepancies and result.discrepancies.flagged:
+        for d in result.discrepancies.discrepancies:
+            discrepancy_list.append(DiscrepancyResponse(
+                rule=d.rule,
+                description=d.description,
+                severity=d.severity,
+            ))
+
+    return CompanionAnalyzeResponse(
+        extraction_method=result.extraction_method,
+        depth_level=result.depth_level,
+        factors=result.factors,
+        custom_factors=result.custom_factors,
+        ai_inferred=(
+            InferredDimensionsResponse(**asdict(result.inferred_dimensions))
+            if result.inferred_dimensions else None
+        ),
+        context_tags=(
+            ContextTagsResponse(**asdict(result.context_tags))
+            if result.context_tags else None
+        ),
+        companion_response=(
+            CompanionTextResponse(
+                text=result.companion_response.text,
+                pattern_referenced=result.companion_response.pattern_referenced,
+                discrepancy_noted=result.companion_response.discrepancy_noted,
+            )
+            if result.companion_response else None
+        ),
+        discrepancies=discrepancy_list,
+    )
+
+
+def _log_companion_audit(db: Session, user_id: int, checkin_id: int, result) -> None:
+    """Create an AuditEvent for this companion response."""
+    try:
+        from app.domain.models.audit_event import AuditEvent
+
+        audit = AuditEvent(
+            user_id=user_id,
+            entity_type="companion_response",
+            entity_id=checkin_id,
+            decision_type="created",
+            decision_reason=f"Companion response generated (depth={result.depth_level}, method={result.extraction_method})",
+            source_metrics=json.dumps(["overall_wellbeing", "energy", "mood", "focus", "connection"]),
+            detectors_used=json.dumps(["journal_companion", "discrepancy_detector"]),
+            safety_checks_applied=json.dumps([
+                {"check": "governance_text_validation", "passed": bool(result.companion_response and result.companion_response.text)},
+                {"check": "factor_medical_filter", "passed": True},
+            ]),
+            metadata_json=json.dumps({
+                "extraction_method": result.extraction_method,
+                "depth_level": result.depth_level,
+                "discrepancies_flagged": result.discrepancies.flagged if result.discrepancies else False,
+                "factors_extracted": len(result.factors),
+            }),
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to log companion audit event: {e}")

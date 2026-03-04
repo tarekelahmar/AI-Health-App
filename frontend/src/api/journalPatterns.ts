@@ -4,9 +4,21 @@ import type {
   JournalPatternData,
   PatternComputeResult,
 } from '../types/JournalFactors';
+import type { CompanionAnalyzeResponse } from '../types/CompanionResponse';
 
 export async function extractFactors(text: string): Promise<FactorExtractionResponse> {
   const res = await apiClient.post('/journal/extract-factors', { text });
+  return res.data;
+}
+
+export async function analyzeWithCompanion(
+  checkinId: number,
+  depthLevel: number = 2,
+): Promise<CompanionAnalyzeResponse> {
+  const res = await apiClient.post('/journal/companion/analyze', {
+    checkin_id: checkinId,
+    depth_level: depthLevel,
+  });
   return res.data;
 }
 
