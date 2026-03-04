@@ -79,6 +79,7 @@ class DailyCheckInResponse(BaseModel):
     context_tags_json: Optional[Dict[str, Any]] = None
     ai_response_text: Optional[str] = None
     discrepancy_json: Optional[Dict[str, Any]] = None
+    milestone_json: Optional[Dict[str, Any]] = None
 
     # Entry metadata
     word_count: Optional[int] = None

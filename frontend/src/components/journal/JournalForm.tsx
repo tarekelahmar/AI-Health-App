@@ -174,32 +174,8 @@ export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProp
           )}
         </div>
 
-        {/* 1. Journal text area (primary input) */}
-        <div className="mb-4">
-          <label className="text-xs font-medium text-gray-500 block mb-1.5">
-            How was your day?
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => handleNotesChange(e.target.value)}
-            placeholder="Went for a run this morning, had lunch with friends, feeling good about work..."
-            className="w-full border border-gray-200 rounded-lg p-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            rows={4}
-          />
-        </div>
-
-        {/* 2. Factor tags (AI-extracted or manual) */}
-        <div className="mb-4">
-          <FactorTags
-            factors={factors}
-            onChange={(newFactors) => { setFactors(newFactors); setHasEdited(true); }}
-            extracting={extracting}
-            llmAvailable={llmAvailable}
-          />
-        </div>
-
-        {/* 3. Score sliders (V2: 1.0-10.0, step 0.5) */}
-        <div className="space-y-3">
+        {/* 1. Score sliders first — capture gut-feel before narrative rationalisation */}
+        <div className="space-y-3 mb-4">
           {FIELDS.map((field) => (
             <div key={field.key}>
               <div className="flex items-center justify-between mb-0.5">
@@ -230,6 +206,30 @@ export function JournalForm({ existingCheckIn, onSave, saving }: JournalFormProp
               </div>
             </div>
           ))}
+        </div>
+
+        {/* 2. Journal text area (narrative after gut-feel scores) */}
+        <div className="mb-4">
+          <label className="text-xs font-medium text-gray-500 block mb-1.5">
+            How was your day?
+          </label>
+          <textarea
+            value={notes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            placeholder="Went for a run this morning, had lunch with friends, feeling good about work..."
+            className="w-full border border-gray-200 rounded-lg p-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            rows={4}
+          />
+        </div>
+
+        {/* 3. Factor tags (AI-extracted or manual) */}
+        <div className="mb-4">
+          <FactorTags
+            factors={factors}
+            onChange={(newFactors) => { setFactors(newFactors); setHasEdited(true); }}
+            extracting={extracting}
+            llmAvailable={llmAvailable}
+          />
         </div>
 
         <button

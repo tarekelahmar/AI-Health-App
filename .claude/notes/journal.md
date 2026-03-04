@@ -93,3 +93,5 @@ Full list defined in `app/llm/factor_extraction.py` KNOWN_FACTORS dict.
 ## Lessons Learned
 <!-- After corrections or non-obvious discoveries, add entries here. -->
 <!-- Format: - **YYYY-MM-DD**: Lesson. Context: what triggered it. -->
+- **2026-03-04**: GET /checkins/{date} auto-creates empty DB rows via upsert. Phase 4 milestone detection ("consecutive entry days") must distinguish real entries from these placeholders. Heuristic: `word_count > 0` or any slider non-null. Context: Phase 1 code review.
+- **2026-03-04**: Form order matters — sliders should come before free-text to capture gut-feel scores before narrative rationalisation can influence them. Context: Phase 1 code review, spec Section 3.

@@ -120,7 +120,11 @@ def get_checkin(
     repo = DailyCheckInRepository(db)
     obj = repo.get_by_date(user_id=user_id, checkin_date=checkin_date)
     if not obj:
-        # return an "empty" checkin shape via upsert with no fields
+        # Return an "empty" checkin shape via upsert with no fields.
+        # TODO(Phase 4): This auto-creates a DB row on GET, which will
+        # inflate "consecutive entry days" for milestone detection. When
+        # implementing milestones, distinguish real entries (word_count > 0
+        # or any slider non-null) from placeholder rows created here.
         obj = repo.upsert_for_date(user_id=user_id, checkin_date=checkin_date, behaviors_json={})
     return obj
 
