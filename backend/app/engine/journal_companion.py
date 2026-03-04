@@ -340,11 +340,41 @@ def _clean_custom_factors(raw_custom: List[Dict]) -> List[Dict]:
 
 # ── Main Service Function ────────────────────────────────────────
 
+def _resolve_depth_level(
+    db: Session, user_id: int, explicit_depth: Optional[int], word_count: Optional[int]
+) -> int:
+    """
+    Resolve the effective depth level.
+
+    Priority: explicit param > user preference > adaptive from word count > default (2).
+    """
+    if explicit_depth is not None:
+        return max(1, min(3, explicit_depth))
+
+    # Try loading from user preferences
+    try:
+        from app.domain.models.user_preference import UserPreference
+        pref = db.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+        if pref and pref.preferred_depth_level:
+            return pref.preferred_depth_level
+    except Exception:
+        pass
+
+    # Adaptive: word count hint
+    if word_count is not None:
+        if word_count >= 200:
+            return 3
+        if word_count < 50:
+            return 1
+
+    return 2  # default
+
+
 def generate_companion_response(
     db: Session,
     user_id: int,
     checkin: DailyCheckIn,
-    depth_level: int = 2,
+    depth_level: int = None,
 ) -> CompanionResult:
     """
     Generate a full companion response for a journal entry.
@@ -358,8 +388,8 @@ def generate_companion_response(
 
     When LLM is disabled, returns deterministic-only result.
     """
-    # Clamp depth level
-    depth_level = max(1, min(3, depth_level))
+    # Resolve depth level from preferences / word count / explicit param
+    depth_level = _resolve_depth_level(db, user_id, depth_level, checkin.word_count)
 
     slider_scores = {
         "overall_wellbeing": checkin.overall_wellbeing,

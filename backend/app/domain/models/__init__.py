@@ -36,6 +36,8 @@ from app.domain.models.oauth_state import OAuthState
 from app.domain.models.job_run import JobRun
 from app.domain.models.wellness_score import WellnessScore
 from app.domain.models.life_domain_score import LifeDomainScore
+from app.domain.models.user_preference import UserPreference
+from app.domain.models.milestone import Milestone
 
 __all__ = [
     "User",
@@ -75,4 +77,6 @@ __all__ = [
     "JobRun",
     "WellnessScore",
     "LifeDomainScore",
+    "UserPreference",
+    "Milestone",
 ]

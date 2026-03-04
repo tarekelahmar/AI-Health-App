@@ -220,6 +220,13 @@ def companion_analyze(
         except Exception as e:
             logger.error(f"Life domain scoring failed: {e}")
 
+        # Detect milestones
+        try:
+            from app.engine.milestone_detector import detect_milestones
+            detect_milestones(db, user_id)
+        except Exception as e:
+            logger.error(f"Milestone detection failed: {e}")
+
         # Log audit event
         _log_companion_audit(db, user_id, checkin.id, result)
 

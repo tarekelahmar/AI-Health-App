@@ -61,6 +61,8 @@ from app.api.v1.correlations import router as correlations_router
 from app.api.v1.wellness_score import router as wellness_score_router
 from app.api.v1.journal import router as journal_router
 from app.api.v1.life_domains import router as life_domains_router
+from app.api.v1.preferences import router as preferences_router
+from app.api.v1.milestones import router as milestones_router
 from app.integrations.health import router as providers_health_router
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -227,6 +229,8 @@ app.include_router(correlations_router)
 app.include_router(wellness_score_router)
 app.include_router(journal_router)
 app.include_router(life_domains_router)
+app.include_router(preferences_router)
+app.include_router(milestones_router)
 app.include_router(providers_health_router)
 
 # Observability

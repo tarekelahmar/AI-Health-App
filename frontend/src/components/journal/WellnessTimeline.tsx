@@ -3,10 +3,13 @@ import * as d3 from 'd3';
 import { Card } from '../ui/Card';
 import type { WellnessScore } from '../../types/WellnessScore';
 
+import type { MilestoneData } from '../../api/milestones';
+
 interface WellnessTimelineProps {
   scores: WellnessScore[];
   selectedDate: string | null;
   onDateSelect: (date: string) => void;
+  milestones?: MilestoneData[];
 }
 
 function scoreColor(score: number): string {
@@ -67,7 +70,15 @@ function computeMetrics(scores: WellnessScore[]) {
   return { current, avg7, avg30, floor, ceiling, volatility, trend };
 }
 
-export function WellnessTimeline({ scores, selectedDate, onDateSelect }: WellnessTimelineProps) {
+const MILESTONE_ICONS: Record<string, string> = {
+  score_streak: '\u{1F525}',
+  recovery: '\u{1F4AA}',
+  pattern_confirmed: '\u{1F50D}',
+  consistency: '\u{1F3AF}',
+  domain_improvement: '\u{2B50}',
+};
+
+export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestones = [] }: WellnessTimelineProps) {
   const chartRef = useRef<SVGSVGElement>(null);
   const recent = scores.slice(0, 7).reverse();
   const metrics = computeMetrics(scores);
@@ -246,6 +257,24 @@ export function WellnessTimeline({ scores, selectedDate, onDateSelect }: Wellnes
             </span>
           </div>
           <svg ref={chartRef} className="w-full" style={{ height: 120 }} />
+        </div>
+      )}
+
+      {/* Milestones */}
+      {milestones.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <h4 className="text-xs text-gray-500 mb-2">Milestones</h4>
+          <div className="space-y-1.5">
+            {milestones.slice(0, 5).map((m) => (
+              <div key={m.id} className="flex items-start gap-2">
+                <span className="text-sm">{MILESTONE_ICONS[m.milestone_type] || '\u{2728}'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-gray-700">{m.description}</div>
+                  <div className="text-[10px] text-gray-400">{m.detected_date}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </Card>

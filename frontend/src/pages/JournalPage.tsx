@@ -7,17 +7,22 @@ import { WellnessTimeline } from '../components/journal/WellnessTimeline';
 import { JournalInsights } from '../components/journal/JournalInsights';
 import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
 import { CorrelationChart } from '../components/journal/CorrelationChart';
+import { JournalOnboarding } from '../components/journal/JournalOnboarding';
+import { SynthesisCard } from '../components/journal/SynthesisCard';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Card } from '../components/ui/Card';
 import { getCheckIn, upsertCheckIn } from '../api/checkins';
 import { analyzeWithCompanion, getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { computeScore, getScoreHistory } from '../api/wellnessScore';
+import { getPreferences, updatePreferences } from '../api/preferences';
+import { getMilestones, getWeeklySynthesis, exportJournalData } from '../api/milestones';
 import type { CheckIn } from '../types/CheckIn';
 import type { WellnessScore } from '../types/WellnessScore';
 import type { CompanionAnalyzeResponse } from '../types/CompanionResponse';
 import type { LifeDomainScoreData } from '../types/LifeDomain';
 import type { JournalPatternData } from '../types/JournalFactors';
+import type { MilestoneData } from '../api/milestones';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
@@ -51,17 +56,28 @@ export default function JournalPage() {
   // Patterns
   const [patterns, setPatterns] = useState<JournalPatternData[]>([]);
 
+  // Phase 4
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+  const [milestones, setMilestones] = useState<MilestoneData[]>([]);
+  const [weeklySynthesis, setWeeklySynthesis] = useState<Record<string, any> | null>(null);
+
   const userId = parseInt(localStorage.getItem('user_id') || '1', 10);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [checkinRes, historyRes, domainRes, domainHistRes, patternsRes] = await Promise.allSettled([
+      const [
+        checkinRes, historyRes, domainRes, domainHistRes,
+        patternsRes, prefRes, milestonesRes, synthesisRes,
+      ] = await Promise.allSettled([
         getCheckIn(userId, todayISO()),
         getScoreHistory(30),
         getCurrentDomainScores(),
         getDomainScoreHistory(30),
         getJournalPatterns(),
+        getPreferences(),
+        getMilestones(),
+        getWeeklySynthesis(),
       ]);
 
       if (checkinRes.status === 'fulfilled') {
@@ -106,7 +122,6 @@ export default function JournalPage() {
 
       if (domainHistRes.status === 'fulfilled') {
         const hist = domainHistRes.value;
-        // Find the earliest entry for comparison overlay
         if (hist.length > 0) {
           setDomainComparison(hist[0].scores);
         }
@@ -114,6 +129,20 @@ export default function JournalPage() {
 
       if (patternsRes.status === 'fulfilled') {
         setPatterns(patternsRes.value);
+      }
+
+      if (prefRes.status === 'fulfilled') {
+        setOnboarded(prefRes.value.journal_onboarded);
+      } else {
+        setOnboarded(false);
+      }
+
+      if (milestonesRes.status === 'fulfilled') {
+        setMilestones(milestonesRes.value);
+      }
+
+      if (synthesisRes.status === 'fulfilled') {
+        setWeeklySynthesis(synthesisRes.value.data);
       }
     } catch (err) {
       console.error('Failed to load journal data:', err);
@@ -125,6 +154,19 @@ export default function JournalPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleOnboardingComplete = async (depthLevel: number) => {
+    try {
+      await updatePreferences({
+        preferred_depth_level: depthLevel,
+        journal_onboarded: true,
+      });
+      setOnboarded(true);
+    } catch (err) {
+      console.error('Failed to save preferences:', err);
+      setOnboarded(true); // Continue anyway
+    }
+  };
 
   const handleSave = async (data: {
     overall_wellbeing: number;
@@ -162,9 +204,13 @@ export default function JournalPage() {
         const companion = await analyzeWithCompanion(savedCheckIn.id);
         setCompanionResult(companion);
 
-        // Refresh domain scores (companion triggers EMA update)
-        const updated = await getCurrentDomainScores();
+        // Refresh domain scores and milestones (companion triggers EMA update + milestone detection)
+        const [updated, freshMilestones] = await Promise.all([
+          getCurrentDomainScores(),
+          getMilestones(),
+        ]);
         setDomainScores(updated);
+        setMilestones(freshMilestones);
       } catch (companionErr) {
         console.error('Companion analysis failed:', companionErr);
       } finally {
@@ -174,6 +220,21 @@ export default function JournalPage() {
       console.error('Failed to save check-in:', err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const data = await exportJournalData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `journal-export-${todayISO()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
     }
   };
 
@@ -189,6 +250,11 @@ export default function JournalPage() {
         <LoadingSpinner />
       </div>
     );
+  }
+
+  // Show onboarding on first visit
+  if (onboarded === false) {
+    return <JournalOnboarding onComplete={handleOnboardingComplete} />;
   }
 
   return (
@@ -313,6 +379,7 @@ export default function JournalPage() {
               scores={scoreHistory}
               selectedDate={selectedDate}
               onDateSelect={handleDateSelect}
+              milestones={milestones}
             />
           ) : (
             <div className="text-center py-10">
@@ -325,6 +392,21 @@ export default function JournalPage() {
           {selectedScore && selectedDate !== todayISO() && (
             <ScoreBreakdown factors={selectedScore.contributing_factors} />
           )}
+
+          {/* Weekly synthesis */}
+          {weeklySynthesis && Object.keys(weeklySynthesis).length > 0 && (
+            <SynthesisCard synthesis={weeklySynthesis} type="weekly" />
+          )}
+
+          {/* Export button */}
+          <div className="text-center pt-2">
+            <button
+              onClick={handleExport}
+              className="text-xs text-gray-400 hover:text-gray-600 underline"
+            >
+              Export journal data
+            </button>
+          </div>
         </>
       )}
     </div>

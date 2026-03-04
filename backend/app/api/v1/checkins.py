@@ -1,7 +1,9 @@
+import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from sqlalchemy.orm import Session
 
@@ -111,6 +113,48 @@ def update_checkin(
     return obj
 
 
+# NOTE: /export must be defined BEFORE /{checkin_date} to avoid path conflict
+@router.get("/export")
+def export_checkins(
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """Full JSON export of all user journal data."""
+    from app.domain.models.daily_checkin import DailyCheckIn
+
+    entries = (
+        db.query(DailyCheckIn)
+        .filter(DailyCheckIn.user_id == user_id)
+        .order_by(DailyCheckIn.checkin_date.asc())
+        .all()
+    )
+
+    result = []
+    for e in entries:
+        result.append({
+            "checkin_date": str(e.checkin_date),
+            "overall_wellbeing": e.overall_wellbeing,
+            "energy": e.energy,
+            "mood": e.mood,
+            "focus": e.focus,
+            "connection": e.connection,
+            "sleep_quality": e.sleep_quality,
+            "stress": e.stress,
+            "notes": e.notes,
+            "behaviors_json": e.behaviors_json,
+            "ai_inferred_json": e.ai_inferred_json,
+            "context_tags_json": e.context_tags_json,
+            "ai_response_text": e.ai_response_text,
+            "discrepancy_json": e.discrepancy_json,
+            "milestone_json": e.milestone_json,
+            "word_count": e.word_count,
+            "depth_level": e.depth_level,
+            "created_at": str(e.created_at),
+        })
+
+    return {"user_id": user_id, "total_entries": len(result), "entries": result}
+
+
 @router.get("/{checkin_date}", response_model=DailyCheckInResponse)
 def get_checkin(
     checkin_date: date,
@@ -139,3 +183,57 @@ def list_checkins(
 ):
     repo = DailyCheckInRepository(db)
     return repo.list_range(user_id=user_id, start_date=start_date, end_date=end_date, limit=limit)
+
+
+# ── Deletion ─────────────────────────────────────────────────────
+
+@router.delete("/{checkin_date}")
+def delete_checkin(
+    checkin_date: date,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """Delete a single check-in entry."""
+    from app.domain.models.daily_checkin import DailyCheckIn
+
+    entry = (
+        db.query(DailyCheckIn)
+        .filter(DailyCheckIn.user_id == user_id, DailyCheckIn.checkin_date == checkin_date)
+        .first()
+    )
+    if not entry:
+        raise HTTPException(status_code=404, detail="Check-in not found")
+
+    db.delete(entry)
+    db.commit()
+    return {"deleted": True, "date": str(checkin_date)}
+
+
+class DeleteAllRequest(BaseModel):
+    confirm: str
+
+
+@router.delete("/all/confirm")
+def delete_all_checkins(
+    payload: DeleteAllRequest,
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """Delete all check-in entries. Body must contain {"confirm": "delete_all_my_data"}."""
+    if payload.confirm != "delete_all_my_data":
+        raise HTTPException(
+            status_code=400,
+            detail='Confirmation required: body must contain {"confirm": "delete_all_my_data"}'
+        )
+
+    from app.domain.models.daily_checkin import DailyCheckIn
+    from app.domain.models.life_domain_score import LifeDomainScore
+    from app.domain.models.milestone import Milestone
+
+    # Cascade: delete milestones and domain scores too
+    db.query(Milestone).filter(Milestone.user_id == user_id).delete()
+    db.query(LifeDomainScore).filter(LifeDomainScore.user_id == user_id).delete()
+    count = db.query(DailyCheckIn).filter(DailyCheckIn.user_id == user_id).delete()
+    db.commit()
+
+    return {"deleted": True, "entries_removed": count}
