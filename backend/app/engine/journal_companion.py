@@ -246,8 +246,8 @@ def _call_companion_llm(
         f"Respond in the JSON format specified in your instructions."
     )
 
-    # Use a stronger model for companion (configurable)
-    model = os.getenv("ANTHROPIC_COMPANION_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"))
+    # Companion needs a stronger model than factor extraction for tone/pattern quality
+    model = os.getenv("ANTHROPIC_COMPANION_MODEL", os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250514"))
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -288,7 +288,7 @@ FORBIDDEN_PHRASES = [
     "diagnos", "prescri", "medicat", "disease", "disorder", "syndrome",
     "treatment plan", "therapy session", "you have", "you suffer",
     "causes", "proves", "cures", "guarantees", "always works",
-    "at least", "it could be worse", "just try to",
+    "at least it", "at least you", "it could be worse", "just try to",
 ]
 
 
