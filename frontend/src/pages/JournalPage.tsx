@@ -16,13 +16,13 @@ import { analyzeWithCompanion, getJournalPatterns } from '../api/journalPatterns
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { computeScore, getScoreHistory } from '../api/wellnessScore';
 import { getPreferences, updatePreferences } from '../api/preferences';
-import { getMilestones, getWeeklySynthesis, exportJournalData } from '../api/milestones';
+import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
 import type { CheckIn } from '../types/CheckIn';
 import type { WellnessScore } from '../types/WellnessScore';
 import type { CompanionAnalyzeResponse } from '../types/CompanionResponse';
 import type { LifeDomainScoreData } from '../types/LifeDomain';
 import type { JournalPatternData } from '../types/JournalFactors';
-import type { MilestoneData } from '../api/milestones';
+import type { MilestoneData, PhaseData } from '../api/milestones';
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
@@ -60,6 +60,7 @@ export default function JournalPage() {
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [milestones, setMilestones] = useState<MilestoneData[]>([]);
   const [weeklySynthesis, setWeeklySynthesis] = useState<Record<string, any> | null>(null);
+  const [phases, setPhases] = useState<PhaseData[]>([]);
 
   const userId = parseInt(localStorage.getItem('user_id') || '1', 10);
 
@@ -68,7 +69,7 @@ export default function JournalPage() {
     try {
       const [
         checkinRes, historyRes, domainRes, domainHistRes,
-        patternsRes, prefRes, milestonesRes, synthesisRes,
+        patternsRes, prefRes, milestonesRes, synthesisRes, phasesRes,
       ] = await Promise.allSettled([
         getCheckIn(userId, todayISO()),
         getScoreHistory(30),
@@ -78,6 +79,7 @@ export default function JournalPage() {
         getPreferences(),
         getMilestones(),
         getWeeklySynthesis(),
+        getWeeklyPhases(30),
       ]);
 
       if (checkinRes.status === 'fulfilled') {
@@ -143,6 +145,10 @@ export default function JournalPage() {
 
       if (synthesisRes.status === 'fulfilled') {
         setWeeklySynthesis(synthesisRes.value.data);
+      }
+
+      if (phasesRes.status === 'fulfilled') {
+        setPhases(phasesRes.value);
       }
     } catch (err) {
       console.error('Failed to load journal data:', err);
@@ -380,6 +386,7 @@ export default function JournalPage() {
               selectedDate={selectedDate}
               onDateSelect={handleDateSelect}
               milestones={milestones}
+              phases={phases}
             />
           ) : (
             <div className="text-center py-10">

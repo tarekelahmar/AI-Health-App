@@ -65,6 +65,56 @@ def get_milestones(
 
 # ── Synthesis ─────────────────────────────────────────────────────
 
+@router.get("/phases", response_model=list)
+def get_weekly_phases(
+    days: int = Query(30, ge=7, le=90),
+    user_id: int = Depends(get_request_user_id),
+    db: Session = Depends(get_db),
+):
+    """Return weekly phase classifications for the last N days.
+
+    Each entry covers a 7-day window and includes phase, confidence,
+    week_start, week_end, and avg wellbeing.  Used by the frontend to
+    render coloured phase bands behind the wellness timeline.
+    """
+    from datetime import date as date_cls, timedelta
+    from app.domain.models.daily_checkin import DailyCheckIn
+    from app.engine.journal_synthesis import classify_phase
+
+    end = date_cls.today()
+    start = end - timedelta(days=days - 1)
+
+    entries = (
+        db.query(DailyCheckIn)
+        .filter(
+            DailyCheckIn.user_id == user_id,
+            DailyCheckIn.checkin_date >= start,
+            DailyCheckIn.checkin_date <= end,
+            DailyCheckIn.overall_wellbeing.isnot(None),
+        )
+        .order_by(DailyCheckIn.checkin_date.asc())
+        .all()
+    )
+
+    result = []
+    current = start
+    while current <= end:
+        w_end = min(current + timedelta(days=6), end)
+        w_entries = [e for e in entries if current <= e.checkin_date <= w_end]
+        w_scores = [e.overall_wellbeing for e in w_entries if e.overall_wellbeing is not None]
+        phase = classify_phase(w_scores, len(w_entries))
+        result.append({
+            "week_start": str(current),
+            "week_end": str(w_end),
+            "phase": phase.phase,
+            "confidence": phase.confidence,
+            "avg": round(sum(w_scores) / len(w_scores), 1) if w_scores else None,
+        })
+        current = w_end + timedelta(days=1)
+
+    return result
+
+
 @router.get("/synthesis/weekly", response_model=SynthesisResponse)
 def get_weekly_synthesis(
     user_id: int = Depends(get_request_user_id),

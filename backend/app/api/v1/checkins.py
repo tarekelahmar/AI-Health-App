@@ -193,8 +193,10 @@ def delete_checkin(
     user_id: int = Depends(get_request_user_id),
     db: Session = Depends(get_db),
 ):
-    """Delete a single check-in entry."""
+    """Delete a single check-in entry and associated domain scores / milestones."""
     from app.domain.models.daily_checkin import DailyCheckIn
+    from app.domain.models.life_domain_score import LifeDomainScore
+    from app.domain.models.milestone import Milestone
 
     entry = (
         db.query(DailyCheckIn)
@@ -203,6 +205,16 @@ def delete_checkin(
     )
     if not entry:
         raise HTTPException(status_code=404, detail="Check-in not found")
+
+    # Cascade: remove domain scores and milestones for this date
+    db.query(LifeDomainScore).filter(
+        LifeDomainScore.user_id == user_id,
+        LifeDomainScore.score_date == str(checkin_date),
+    ).delete()
+    db.query(Milestone).filter(
+        Milestone.user_id == user_id,
+        Milestone.detected_date == checkin_date,
+    ).delete()
 
     db.delete(entry)
     db.commit()

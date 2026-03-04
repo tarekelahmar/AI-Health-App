@@ -28,6 +28,19 @@ export async function getMonthlySynthesis(month?: string): Promise<SynthesisData
   return res.data;
 }
 
+export interface PhaseData {
+  week_start: string;
+  week_end: string;
+  phase: string;
+  confidence: number;
+  avg: number | null;
+}
+
+export async function getWeeklyPhases(days: number = 30): Promise<PhaseData[]> {
+  const res = await apiClient.get('/journal/phases', { params: { days } });
+  return res.data;
+}
+
 export async function exportJournalData(): Promise<any> {
   const res = await apiClient.get('/checkins/export');
   return res.data;

@@ -3,13 +3,14 @@ import * as d3 from 'd3';
 import { Card } from '../ui/Card';
 import type { WellnessScore } from '../../types/WellnessScore';
 
-import type { MilestoneData } from '../../api/milestones';
+import type { MilestoneData, PhaseData } from '../../api/milestones';
 
 interface WellnessTimelineProps {
   scores: WellnessScore[];
   selectedDate: string | null;
   onDateSelect: (date: string) => void;
   milestones?: MilestoneData[];
+  phases?: PhaseData[];
 }
 
 function scoreColor(score: number): string {
@@ -78,7 +79,15 @@ const MILESTONE_ICONS: Record<string, string> = {
   domain_improvement: '\u{2B50}',
 };
 
-export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestones = [] }: WellnessTimelineProps) {
+const PHASE_COLORS: Record<string, string> = {
+  CRISIS: 'rgba(239,68,68,0.08)',      // red-500 at 8%
+  STABILIZING: 'rgba(245,158,11,0.06)', // amber-500 at 6%
+  BUILDING: 'rgba(59,130,246,0.06)',    // blue-500 at 6%
+  STABLE: 'rgba(16,185,129,0.06)',      // emerald-500 at 6%
+  GROWING: 'rgba(139,92,246,0.08)',     // purple-500 at 8%
+};
+
+export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestones = [], phases = [] }: WellnessTimelineProps) {
   const chartRef = useRef<SVGSVGElement>(null);
   const recent = scores.slice(0, 7).reverse();
   const metrics = computeMetrics(scores);
@@ -116,6 +125,30 @@ export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestone
       .attr('height', height)
       .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Phase bands (behind everything)
+    if (phases.length > 0) {
+      const dateSet = new Set(data.map((d) => d.date));
+      for (const p of phases) {
+        const color = PHASE_COLORS[p.phase];
+        if (!color) continue;
+        // Find the first and last chart dates that fall within this phase window
+        const phaseDates = data.filter(
+          (d) => d.date >= p.week_start && d.date <= p.week_end,
+        );
+        if (phaseDates.length === 0) continue;
+        const xStart = x(phaseDates[0].date)!;
+        const xEnd = x(phaseDates[phaseDates.length - 1].date)!;
+        // Extend band half-step on each side for visual continuity
+        const step = data.length > 1 ? (x(data[1].date)! - x(data[0].date)!) : 0;
+        g.append('rect')
+          .attr('x', Math.max(0, xStart - step / 2))
+          .attr('y', 0)
+          .attr('width', Math.min(innerW, xEnd - xStart + step) )
+          .attr('height', innerH)
+          .attr('fill', color);
+      }
+    }
 
     // Area
     const area = d3.area<{ date: string; score: number }>()
@@ -164,6 +197,22 @@ export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestone
       .attr('stroke', 'white')
       .attr('stroke-width', 1);
 
+    // Milestone markers on x-axis
+    if (milestones.length > 0) {
+      const chartDates = new Set(data.map((d) => d.date));
+      const chartMilestones = milestones.filter((m) => chartDates.has(m.detected_date));
+      g.selectAll('.milestone-marker')
+        .data(chartMilestones)
+        .enter()
+        .append('text')
+        .attr('x', (m) => x(m.detected_date)!)
+        .attr('y', innerH + 1) // just above the x-axis line
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '12px')
+        .attr('dominant-baseline', 'auto')
+        .text((m) => MILESTONE_ICONS[m.milestone_type] || '\u{2728}');
+    }
+
     // X axis (every 7th date)
     const xAxis = d3.axisBottom(x).tickValues(
       data.filter((_d, i) => i % 7 === 0).map((d) => d.date),
@@ -187,7 +236,7 @@ export function WellnessTimeline({ scores, selectedDate, onDateSelect, milestone
     g.selectAll('.domain').remove();
     g.selectAll('.tick line').attr('stroke', '#f3f4f6');
 
-  }, [scores]);
+  }, [scores, milestones, phases]);
 
   if (recent.length === 0) return null;
 
