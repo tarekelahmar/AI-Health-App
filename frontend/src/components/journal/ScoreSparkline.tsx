@@ -1,8 +1,8 @@
 /**
- * ScoreSparkline — Compact 56px SVG sparkline for daily scores (1-10).
+ * ScoreSparkline — Compact SVG sparkline for daily scores (1-10).
  *
- * Shows the last 14 days of daily scores as a polyline with gradient fill,
- * color-coded dots per score zone, and today's score + trend arrow on the right.
+ * Always renders a structured chart frame with zone tinting, Y-axis labels,
+ * and gridlines. Data (dots, line, fill) layers on top as scores accumulate.
  *
  * Score zones:
  *   >= 7  green  (#22c55e)
@@ -18,14 +18,17 @@ interface ScoreSparklineProps {
   days?: number;
 }
 
-const HEIGHT = 56;
+const HEIGHT_DATA = 56;
+const HEIGHT_EMPTY = 72;
 const PAD_TOP = 8;
 const PAD_BOTTOM = 8;
-const PAD_LEFT = 4;
-const RIGHT_PANEL = 48;   // space for today's score + trend on the right
+const PAD_LEFT = 16;    // room for Y-axis labels
+const RIGHT_PANEL = 48; // space for today's score + trend on the right
 const DOT_RADIUS = 3;
 const Y_MIN = 1;
 const Y_MAX = 10;
+
+const CHART_WIDTH = 300;
 
 function scoreColor(score: number): string {
   if (score >= 7) return '#22c55e';
@@ -38,46 +41,109 @@ function trendArrow(scores: DailyScore[]): { symbol: string; color: string } | n
   const last = scores[scores.length - 1].score;
   const prev = scores[scores.length - 2].score;
   const diff = last - prev;
-  if (Math.abs(diff) < 0.3) return { symbol: '\u2192', color: '#9ca3af' }; // gray arrow right
-  if (diff > 0) return { symbol: '\u2191', color: '#22c55e' };              // green up
-  return { symbol: '\u2193', color: '#ef4444' };                             // red down
+  if (Math.abs(diff) < 0.3) return { symbol: '\u2192', color: '#9ca3af' };
+  if (diff > 0) return { symbol: '\u2191', color: '#22c55e' };
+  return { symbol: '\u2193', color: '#ef4444' };
+}
+
+/** Shared chart frame: zone bands, gridlines, Y-axis labels */
+function ChartFrame({
+  height,
+  plotLeft,
+  plotRight,
+  toY,
+}: {
+  height: number;
+  plotLeft: number;
+  plotRight: number;
+  toY: (score: number) => number;
+}) {
+  const y10 = toY(10);
+  const y7 = toY(7);
+  const y5 = toY(5);
+  const y1 = toY(1);
+
+  const gridlines = [
+    { y: y10, label: '10' },
+    { y: toY(5), label: '5' },
+    { y: y1, label: '1' },
+  ];
+
+  return (
+    <>
+      {/* Zone tinting bands */}
+      <rect x={plotLeft} y={y10} width={plotRight - plotLeft} height={y7 - y10}
+        fill="#22c55e" opacity={0.03} />
+      <rect x={plotLeft} y={y7} width={plotRight - plotLeft} height={y5 - y7}
+        fill="#f59e0b" opacity={0.03} />
+      <rect x={plotLeft} y={y5} width={plotRight - plotLeft} height={y1 - y5}
+        fill="#ef4444" opacity={0.03} />
+
+      {/* Gridlines */}
+      {gridlines.map((g) => (
+        <line
+          key={g.label}
+          x1={plotLeft} y1={g.y}
+          x2={plotRight} y2={g.y}
+          stroke="#f3f4f6"
+          strokeWidth={1}
+          strokeDasharray="4 4"
+        />
+      ))}
+
+      {/* Y-axis labels */}
+      {gridlines.map((g) => (
+        <text
+          key={`label-${g.label}`}
+          x={plotLeft - 4}
+          y={g.y}
+          textAnchor="end"
+          dominantBaseline="middle"
+          fill="#d1d5db"
+          fontSize="9"
+        >
+          {g.label}
+        </text>
+      ))}
+    </>
+  );
 }
 
 export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
-  const chartWidth = 300;
-  const plotWidth = chartWidth - PAD_LEFT - RIGHT_PANEL;
-  const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
-  const midY = PAD_TOP + plotHeight - ((5.5 - Y_MIN) / (Y_MAX - Y_MIN)) * plotHeight;
-
-  // Use last `days` entries
   const data = scores.slice(-days);
+  const isEmpty = data.length === 0;
+  const height = isEmpty ? HEIGHT_EMPTY : HEIGHT_DATA;
+  const plotWidth = CHART_WIDTH - PAD_LEFT - RIGHT_PANEL;
+  const plotHeight = height - PAD_TOP - PAD_BOTTOM;
 
-  // ── Empty state: visual frame with dashed midline ──
-  if (data.length === 0) {
+  const toY = (score: number) => {
+    const ratio = (score - Y_MIN) / (Y_MAX - Y_MIN);
+    return PAD_TOP + plotHeight - ratio * plotHeight;
+  };
+
+  const plotLeft = PAD_LEFT;
+  const plotRight = CHART_WIDTH - RIGHT_PANEL;
+
+  // ── Empty state ──
+  if (isEmpty) {
     return (
-      <div className="flex items-center w-full" style={{ height: HEIGHT }}>
+      <div className="flex items-center w-full" style={{ height }}>
         <svg
-          viewBox={`0 0 ${chartWidth} ${HEIGHT}`}
+          viewBox={`0 0 ${CHART_WIDTH} ${height}`}
           preserveAspectRatio="none"
           className="w-full"
-          style={{ height: HEIGHT }}
+          style={{ height }}
         >
-          <line
-            x1={PAD_LEFT} y1={midY}
-            x2={chartWidth - RIGHT_PANEL} y2={midY}
-            stroke="#e5e7eb"
-            strokeWidth={1}
-            strokeDasharray="4 3"
-          />
+          <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
           <text
-            x={(PAD_LEFT + chartWidth - RIGHT_PANEL) / 2}
-            y={HEIGHT / 2}
+            x={(plotLeft + plotRight) / 2}
+            y={height / 2}
             textAnchor="middle"
             dominantBaseline="middle"
             fill="#d1d5db"
             fontSize="10"
           >
-            No scores yet
+            Your trend will appear here
           </text>
         </svg>
       </div>
@@ -86,50 +152,31 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
 
   // Map data to SVG coordinates
   const xStep = data.length > 1 ? plotWidth / (data.length - 1) : 0;
-
   const toX = (i: number) => PAD_LEFT + i * xStep;
-  const toY = (score: number) => {
-    const ratio = (score - Y_MIN) / (Y_MAX - Y_MIN);
-    return PAD_TOP + plotHeight - ratio * plotHeight;
-  };
 
-  // Today's score and trend
   const todayScore = data[data.length - 1];
   const trend = trendArrow(data);
   const todayColor = scoreColor(todayScore.score);
-
-  // Unique gradient ID
   const gradId = 'spark-grad';
 
   // ── Single point: dot only, no line/fill ──
   if (data.length === 1) {
-    const cx = PAD_LEFT + plotWidth / 2; // center the single dot
+    const cx = PAD_LEFT + plotWidth / 2;
     const cy = toY(data[0].score);
 
     return (
-      <div className="flex items-center w-full" style={{ height: HEIGHT }}>
+      <div className="flex items-center w-full" style={{ height }}>
         <svg
-          viewBox={`0 0 ${chartWidth} ${HEIGHT}`}
+          viewBox={`0 0 ${CHART_WIDTH} ${height}`}
           preserveAspectRatio="none"
           className="w-full"
-          style={{ height: HEIGHT }}
+          style={{ height }}
         >
-          <line
-            x1={PAD_LEFT} y1={midY}
-            x2={chartWidth - RIGHT_PANEL} y2={midY}
-            stroke="#e5e7eb"
-            strokeWidth={1}
-            strokeDasharray="4 3"
-          />
-          <circle
-            cx={cx}
-            cy={cy}
-            r={DOT_RADIUS + 1}
-            fill={todayColor}
-          />
+          <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
+          <circle cx={cx} cy={cy} r={DOT_RADIUS + 1} fill={todayColor} />
           <text
-            x={chartWidth - RIGHT_PANEL / 2}
-            y={HEIGHT / 2 - 2}
+            x={CHART_WIDTH - RIGHT_PANEL / 2}
+            y={height / 2 - 2}
             textAnchor="middle"
             dominantBaseline="middle"
             fill={todayColor}
@@ -147,22 +194,19 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
 
   // ── 2+ points: full sparkline ──
 
-  // Build polyline points
   const points = data.map((d, i) => `${toX(i)},${toY(d.score)}`).join(' ');
-
-  // Build polygon for gradient fill (close at bottom)
   const firstX = toX(0);
   const lastX = toX(data.length - 1);
   const bottomY = PAD_TOP + plotHeight;
   const fillPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
 
   return (
-    <div className="flex items-center w-full" style={{ height: HEIGHT }}>
+    <div className="flex items-center w-full" style={{ height }}>
       <svg
-        viewBox={`0 0 ${chartWidth} ${HEIGHT}`}
+        viewBox={`0 0 ${CHART_WIDTH} ${height}`}
         preserveAspectRatio="none"
         className="w-full"
-        style={{ height: HEIGHT }}
+        style={{ height }}
       >
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -170,6 +214,9 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
             <stop offset="100%" stopColor={todayColor} stopOpacity={0.02} />
           </linearGradient>
         </defs>
+
+        {/* Chart frame: zones, gridlines, labels */}
+        <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
 
         {/* Gradient fill under curve */}
         <polygon points={fillPoints} fill={`url(#${gradId})`} />
@@ -199,8 +246,8 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
 
         {/* Today's score number on the right */}
         <text
-          x={chartWidth - RIGHT_PANEL / 2}
-          y={HEIGHT / 2 - 2}
+          x={CHART_WIDTH - RIGHT_PANEL / 2}
+          y={height / 2 - 2}
           textAnchor="middle"
           dominantBaseline="middle"
           fill={todayColor}
@@ -215,8 +262,8 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
         {/* Trend arrow */}
         {trend && (
           <text
-            x={chartWidth - RIGHT_PANEL / 2}
-            y={HEIGHT / 2 + 14}
+            x={CHART_WIDTH - RIGHT_PANEL / 2}
+            y={height / 2 + 14}
             textAnchor="middle"
             dominantBaseline="middle"
             fill={trend.color}
