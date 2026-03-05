@@ -1,8 +1,8 @@
 /**
  * ScoreSparkline — Compact SVG sparkline for daily scores (1-10).
  *
- * Always renders a structured chart frame with zone tinting, Y-axis labels,
- * and gridlines. Data (dots, line, fill) layers on top as scores accumulate.
+ * Always renders a structured chart frame with three soft zone tinting bands.
+ * Data (dots, line, fill) layers on top as scores accumulate.
  *
  * Score zones:
  *   >= 7  green  (#22c55e)
@@ -18,11 +18,11 @@ interface ScoreSparklineProps {
   days?: number;
 }
 
-const HEIGHT_DATA = 56;
-const HEIGHT_EMPTY = 72;
-const PAD_TOP = 8;
-const PAD_BOTTOM = 8;
-const PAD_LEFT = 16;    // room for Y-axis labels
+const HEIGHT_DATA = 64;
+const HEIGHT_EMPTY = 80;
+const PAD_TOP = 12;
+const PAD_BOTTOM = 12;
+const PAD_LEFT = 4;
 const RIGHT_PANEL = 48; // space for today's score + trend on the right
 const DOT_RADIUS = 3;
 const Y_MIN = 1;
@@ -46,14 +46,12 @@ function trendArrow(scores: DailyScore[]): { symbol: string; color: string } | n
   return { symbol: '\u2193', color: '#ef4444' };
 }
 
-/** Shared chart frame: zone bands, gridlines, Y-axis labels */
+/** Shared chart frame: three soft zone tinting bands */
 function ChartFrame({
-  height,
   plotLeft,
   plotRight,
   toY,
 }: {
-  height: number;
   plotLeft: number;
   plotRight: number;
   toY: (score: number) => number;
@@ -63,48 +61,14 @@ function ChartFrame({
   const y5 = toY(5);
   const y1 = toY(1);
 
-  const gridlines = [
-    { y: y10, label: '10' },
-    { y: toY(5), label: '5' },
-    { y: y1, label: '1' },
-  ];
-
   return (
     <>
-      {/* Zone tinting bands */}
       <rect x={plotLeft} y={y10} width={plotRight - plotLeft} height={y7 - y10}
         fill="#22c55e" opacity={0.03} />
       <rect x={plotLeft} y={y7} width={plotRight - plotLeft} height={y5 - y7}
         fill="#f59e0b" opacity={0.03} />
       <rect x={plotLeft} y={y5} width={plotRight - plotLeft} height={y1 - y5}
         fill="#ef4444" opacity={0.03} />
-
-      {/* Gridlines */}
-      {gridlines.map((g) => (
-        <line
-          key={g.label}
-          x1={plotLeft} y1={g.y}
-          x2={plotRight} y2={g.y}
-          stroke="#f3f4f6"
-          strokeWidth={1}
-          strokeDasharray="4 4"
-        />
-      ))}
-
-      {/* Y-axis labels */}
-      {gridlines.map((g) => (
-        <text
-          key={`label-${g.label}`}
-          x={plotLeft - 4}
-          y={g.y}
-          textAnchor="end"
-          dominantBaseline="middle"
-          fill="#d1d5db"
-          fontSize="9"
-        >
-          {g.label}
-        </text>
-      ))}
     </>
   );
 }
@@ -134,7 +98,7 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
           className="w-full"
           style={{ height }}
         >
-          <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
+          <ChartFrame plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
           <text
             x={(plotLeft + plotRight) / 2}
             y={height / 2}
@@ -172,7 +136,7 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
           className="w-full"
           style={{ height }}
         >
-          <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
+          <ChartFrame plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
           <circle cx={cx} cy={cy} r={DOT_RADIUS + 1} fill={todayColor} />
           <text
             x={CHART_WIDTH - RIGHT_PANEL / 2}
@@ -215,8 +179,8 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
           </linearGradient>
         </defs>
 
-        {/* Chart frame: zones, gridlines, labels */}
-        <ChartFrame height={height} plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
+        {/* Chart frame: zone bands */}
+        <ChartFrame plotLeft={plotLeft} plotRight={plotRight} toY={toY} />
 
         {/* Gradient fill under curve */}
         <polygon points={fillPoints} fill={`url(#${gradId})`} />
