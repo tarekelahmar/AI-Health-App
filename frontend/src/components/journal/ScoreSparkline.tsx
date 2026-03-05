@@ -44,19 +44,45 @@ function trendArrow(scores: DailyScore[]): { symbol: string; color: string } | n
 }
 
 export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
-  if (scores.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-14 text-xs text-gray-400">
-        No daily scores yet
-      </div>
-    );
-  }
+  const chartWidth = 300;
+  const plotWidth = chartWidth - PAD_LEFT - RIGHT_PANEL;
+  const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const midY = PAD_TOP + plotHeight - ((5.5 - Y_MIN) / (Y_MAX - Y_MIN)) * plotHeight;
 
   // Use last `days` entries
   const data = scores.slice(-days);
-  const chartWidth = 300; // will be responsive via viewBox
-  const plotWidth = chartWidth - PAD_LEFT - RIGHT_PANEL;
-  const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+
+  // ── Empty state: visual frame with dashed midline ──
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center w-full" style={{ height: HEIGHT }}>
+        <svg
+          viewBox={`0 0 ${chartWidth} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          className="w-full"
+          style={{ height: HEIGHT }}
+        >
+          <line
+            x1={PAD_LEFT} y1={midY}
+            x2={chartWidth - RIGHT_PANEL} y2={midY}
+            stroke="#e5e7eb"
+            strokeWidth={1}
+            strokeDasharray="4 3"
+          />
+          <text
+            x={(PAD_LEFT + chartWidth - RIGHT_PANEL) / 2}
+            y={HEIGHT / 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#d1d5db"
+            fontSize="10"
+          >
+            No scores yet
+          </text>
+        </svg>
+      </div>
+    );
+  }
 
   // Map data to SVG coordinates
   const xStep = data.length > 1 ? plotWidth / (data.length - 1) : 0;
@@ -67,6 +93,60 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
     return PAD_TOP + plotHeight - ratio * plotHeight;
   };
 
+  // Today's score and trend
+  const todayScore = data[data.length - 1];
+  const trend = trendArrow(data);
+  const todayColor = scoreColor(todayScore.score);
+
+  // Unique gradient ID
+  const gradId = 'spark-grad';
+
+  // ── Single point: dot only, no line/fill ──
+  if (data.length === 1) {
+    const cx = PAD_LEFT + plotWidth / 2; // center the single dot
+    const cy = toY(data[0].score);
+
+    return (
+      <div className="flex items-center w-full" style={{ height: HEIGHT }}>
+        <svg
+          viewBox={`0 0 ${chartWidth} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          className="w-full"
+          style={{ height: HEIGHT }}
+        >
+          <line
+            x1={PAD_LEFT} y1={midY}
+            x2={chartWidth - RIGHT_PANEL} y2={midY}
+            stroke="#e5e7eb"
+            strokeWidth={1}
+            strokeDasharray="4 3"
+          />
+          <circle
+            cx={cx}
+            cy={cy}
+            r={DOT_RADIUS + 1}
+            fill={todayColor}
+          />
+          <text
+            x={chartWidth - RIGHT_PANEL / 2}
+            y={HEIGHT / 2 - 2}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill={todayColor}
+            fontSize="16"
+            fontWeight="700"
+          >
+            {todayScore.score % 1 === 0
+              ? todayScore.score.toFixed(0)
+              : todayScore.score.toFixed(1)}
+          </text>
+        </svg>
+      </div>
+    );
+  }
+
+  // ── 2+ points: full sparkline ──
+
   // Build polyline points
   const points = data.map((d, i) => `${toX(i)},${toY(d.score)}`).join(' ');
 
@@ -75,14 +155,6 @@ export function ScoreSparkline({ scores, days = 14 }: ScoreSparklineProps) {
   const lastX = toX(data.length - 1);
   const bottomY = PAD_TOP + plotHeight;
   const fillPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
-
-  // Today's score and trend
-  const todayScore = data[data.length - 1];
-  const trend = trendArrow(data);
-  const todayColor = scoreColor(todayScore.score);
-
-  // Unique gradient ID
-  const gradId = 'spark-grad';
 
   return (
     <div className="flex items-center w-full" style={{ height: HEIGHT }}>

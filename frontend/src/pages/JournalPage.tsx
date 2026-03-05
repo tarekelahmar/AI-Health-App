@@ -532,11 +532,9 @@ export default function JournalPage() {
         {activeTab === 'journal' && (
           <div className="flex flex-col h-full">
             {/* Score sparkline (1-10 daily scores) */}
-            {dailyScores.length > 0 && (
-              <div className="px-4 py-1 border-b border-gray-100">
-                <ScoreSparkline scores={dailyScores} />
-              </div>
-            )}
+            <div className="px-4 py-1 border-b border-gray-100">
+              <ScoreSparkline scores={dailyScores} />
+            </div>
 
             {/* Chat thread */}
             <ChatThread
