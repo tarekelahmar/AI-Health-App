@@ -14,6 +14,10 @@ interface ChatInputProps {
   onSend: () => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Show "Rate your day" button */
+  showRateDay?: boolean;
+  /** Called when user taps "Rate your day" */
+  onRateDay?: () => void;
 }
 
 export function ChatInput({
@@ -22,6 +26,8 @@ export function ChatInput({
   onSend,
   disabled = false,
   placeholder = "What's on your mind...",
+  showRateDay = false,
+  onRateDay,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,6 +54,20 @@ export function ChatInput({
   return (
     <div className="px-4 py-3 border-t border-gray-200 bg-white">
       <div className="flex items-end gap-2">
+        {showRateDay && onRateDay && (
+          <button
+            onClick={onRateDay}
+            className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center bg-amber-50 hover:bg-amber-100 text-amber-500 transition-colors"
+            aria-label="Rate your day"
+            title="Rate your day"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </button>
+        )}
         <div className="flex-1 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-2.5 focus-within:border-blue-300 transition-colors">
           <textarea
             ref={textareaRef}

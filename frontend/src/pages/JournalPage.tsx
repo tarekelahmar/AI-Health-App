@@ -470,6 +470,26 @@ export default function JournalPage() {
     setSelectedDate(date);
   };
 
+  // ── Rate your day (manual score trigger) ────────────────────────
+
+  const showRateDay = Boolean(
+    currentSessionId &&
+    !scoreStates[currentSessionId]?.confirmed &&
+    !scoreStates[currentSessionId]?.confirming,
+  );
+
+  const handleRateDay = useCallback(() => {
+    if (!currentSessionId) return;
+
+    setScoreStates((prev) => {
+      if (prev[currentSessionId]?.confirmed) return prev;
+      return {
+        ...prev,
+        [currentSessionId]: { proposed: 5.0, confirmed: false, confirming: false },
+      };
+    });
+  }, [currentSessionId]);
+
   // ── Render ─────────────────────────────────────────────────────
 
   if (loading) {
@@ -574,6 +594,8 @@ export default function JournalPage() {
               onChange={setInputText}
               onSend={handleSend}
               disabled={isStreaming}
+              showRateDay={showRateDay}
+              onRateDay={handleRateDay}
             />
           </div>
         )}
