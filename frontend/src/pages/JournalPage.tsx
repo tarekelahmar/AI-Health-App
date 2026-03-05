@@ -8,6 +8,7 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WellnessTimeline } from '../components/journal/WellnessTimeline';
+import { ScoreSparkline } from '../components/journal/ScoreSparkline';
 import { LifeDomainRadar } from '../components/journal/LifeDomainRadar';
 import { ChatThread } from '../components/journal/ChatThread';
 import { ChatInput } from '../components/journal/ChatInput';
@@ -23,6 +24,7 @@ import { getJournalPatterns } from '../api/journalPatterns';
 import { getCurrentDomainScores, getDomainScoreHistory } from '../api/lifeDomains';
 import { getDomainCheckinStatus, submitDomainCheckin } from '../api/domainCheckins';
 import { getTodayCheckin } from '../api/checkins';
+import { getDailyScores } from '../api/dailyScores';
 import { getMilestones, getWeeklySynthesis, getWeeklyPhases, exportJournalData } from '../api/milestones';
 import {
   sendMessage,
@@ -30,6 +32,7 @@ import {
   getSessions,
 } from '../api/journalChat';
 import type { WellnessScore } from '../types/WellnessScore';
+import type { DailyScore } from '../api/dailyScores';
 import type { LifeDomainScoreData } from '../types/LifeDomain';
 import type { JournalPatternData } from '../types/JournalFactors';
 import type { MilestoneData, PhaseData } from '../api/milestones';
@@ -96,7 +99,11 @@ export default function JournalPage() {
   // Today's behavioral factors (for Actions tab)
   const [todayFactors, setTodayFactors] = useState<Record<string, any> | null>(null);
 
+  // Daily scores (1-10 scale) for sparkline
+  const [dailyScores, setDailyScores] = useState<DailyScore[]>([]);
+
   const todayScore = scoreHistory.find((s) => s.score_date === todayISO());
+  const todayDailyScore = dailyScores.find((s) => s.date === todayISO());
 
   // ── Load initial data ──────────────────────────────────────────
 
@@ -106,7 +113,7 @@ export default function JournalPage() {
       const [
         sessionsRes, historyRes, domainRes, domainHistRes,
         patternsRes, milestonesRes, synthesisRes, phasesRes,
-        dcStatusRes, todayCheckinRes,
+        dcStatusRes, todayCheckinRes, dailyScoresRes,
       ] = await Promise.allSettled([
         getSessions(30, 50),
         getScoreHistory(30),
@@ -118,6 +125,7 @@ export default function JournalPage() {
         getWeeklyPhases(30),
         getDomainCheckinStatus(),
         getTodayCheckin(),
+        getDailyScores(14),
       ]);
 
       // Build session groups from loaded sessions.
@@ -202,6 +210,10 @@ export default function JournalPage() {
 
       if (todayCheckinRes.status === 'fulfilled' && todayCheckinRes.value) {
         setTodayFactors(todayCheckinRes.value.behaviors_json);
+      }
+
+      if (dailyScoresRes.status === 'fulfilled') {
+        setDailyScores(dailyScoresRes.value);
       }
     } catch (err) {
       console.error('Failed to load journal data:', err);
@@ -373,10 +385,14 @@ export default function JournalPage() {
           ),
         );
 
-        // Refresh score history
+        // Refresh score history + daily scores
         try {
-          const history = await getScoreHistory(30);
+          const [history, scores] = await Promise.all([
+            getScoreHistory(30),
+            getDailyScores(14),
+          ]);
           setScoreHistory(history);
+          setDailyScores(scores);
         } catch {
           // Non-fatal
         }
@@ -471,23 +487,23 @@ export default function JournalPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold text-gray-900">Journal</h1>
           <div className="flex items-center gap-2">
-            {todayScore && (
-              <>
-                <div className="text-right">
-                  <div className="text-xs text-gray-400">Today</div>
-                  <div
-                    className={`text-sm font-semibold ${
-                      todayScore.score >= 70
-                        ? 'text-green-600'
-                        : todayScore.score >= 50
-                          ? 'text-amber-500'
-                          : 'text-red-500'
-                    }`}
-                  >
-                    {Math.round(todayScore.score)}
-                  </div>
+            {todayDailyScore && (
+              <div className="text-right">
+                <div className="text-xs text-gray-400">Today</div>
+                <div
+                  className={`text-sm font-semibold ${
+                    todayDailyScore.score >= 7
+                      ? 'text-green-600'
+                      : todayDailyScore.score >= 5
+                        ? 'text-amber-500'
+                        : 'text-red-500'
+                  }`}
+                >
+                  {todayDailyScore.score % 1 === 0
+                    ? todayDailyScore.score.toFixed(0)
+                    : todayDailyScore.score.toFixed(1)}
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -515,17 +531,10 @@ export default function JournalPage() {
         {/* ── JOURNAL TAB ── */}
         {activeTab === 'journal' && (
           <div className="flex flex-col h-full">
-            {/* Trend chart */}
-            {scoreHistory.length > 0 && (
-              <div className="px-4 py-2 border-b border-gray-100">
-                <WellnessTimeline
-                  scores={scoreHistory}
-                  selectedDate={selectedDate}
-                  onDateSelect={handleDateSelect}
-                  milestones={milestones}
-                  phases={phases}
-                  compact
-                />
+            {/* Score sparkline (1-10 daily scores) */}
+            {dailyScores.length > 0 && (
+              <div className="px-4 py-1 border-b border-gray-100">
+                <ScoreSparkline scores={dailyScores} />
               </div>
             )}
 
