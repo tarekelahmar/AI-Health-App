@@ -19,8 +19,8 @@ class AuditEventOut(BaseModel):
     source_metrics: Optional[List[str]] = None
     time_windows: Optional[Dict[str, Dict[str, Any]]] = None
     detectors_used: Optional[List[str]] = None
-    thresholds_crossed: Optional[List[Dict[str, Any]]] = None
-    safety_checks_applied: Optional[List[Dict[str, Any]]] = None
+    thresholds_crossed: Optional[List[Any]] = None
+    safety_checks_applied: Optional[List[Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
 

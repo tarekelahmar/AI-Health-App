@@ -1,5 +1,5 @@
-# AUDIT FIX: Use single metric registry
-from app.domain.metric_registry import METRICS as CANONICAL_METRICS
+# AUDIT FIX: Use single metric registry (Phase 1.1 unified registry)
+from app.domain.metrics.registry import METRIC_REGISTRY as CANONICAL_METRICS
 
 
 def normalize_value(metric_key: str, value: float, unit: str) -> float:

@@ -4,6 +4,7 @@ from app.llm.client import translate_insight
 from app.domain.claims import get_evidence_grade, get_claim_policy
 from app.engine.governance.claim_policy import validate_language, get_policy
 from app.domain.health_domains import HealthDomainKey, domain_for_signal
+from app.domain.metrics.registry import METRIC_REGISTRY
 
 INSIGHT_TYPE_TO_STATUS = {
     "change": "detected",
@@ -114,24 +115,33 @@ def transform_insight(domain_insight) -> InsightResponse:
     
     # Note: evidence grade/strength are strings; do not include in numeric evidence payload.
 
-    # GOVERNANCE (legacy rows): ensure we never return policy-violating text even if DB contains it.
+    # GOVERNANCE: ensure we never return text containing forbidden/overclaiming phrases.
+    # We check only must_not_use (forbidden) phrases — the must_use check is too
+    # restrictive for natural-language titles like "Sleep baseline established" and
+    # would replace perfectly readable text with ugly generic fallbacks.
     title = domain_insight.title or ""
     summary = domain_insight.description or ""
+    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
     try:
         claim_level = min(5, max(1, int(confidence * 5) + 1))
-        ok, violations = validate_language(claim_level, f"{title} {summary}")
-        if not ok:
-            # Downgrade to safe deterministic phrasing.
+        policy = get_policy(claim_level)
+        combined_lower = f"{title} {summary}".lower()
+        forbidden_violations = [
+            phrase for phrase in policy.must_not_use_phrases
+            if phrase.lower() in combined_lower
+        ]
+        if forbidden_violations:
+            # Replace with safe human-readable phrasing using display names.
             safe_level = max(1, claim_level - 1)
-            policy = get_policy(safe_level)
-            title = f"{metric_key}: {policy.level_name} signal"
-            summary = f"Recent data {policy.must_use_phrases[0] if policy.must_use_phrases else 'shows'} changes in {metric_key}."
+            safe_policy = get_policy(safe_level)
+            title = f"{display_name}: pattern detected"
+            summary = f"A change was detected in your {display_name}. See the explanation below for details."
             evidence["policy_sanitized"] = 1
             evidence["claim_level"] = int(safe_level)
     except Exception:
         # FAIL-CLOSED: if validation fails, replace with safe generic language.
-        title = f"{metric_key}: signal"
-        summary = f"Recent data shows changes in {metric_key}."
+        title = f"{display_name}: pattern detected"
+        summary = f"A change was detected in your {display_name}."
         evidence["policy_sanitized"] = 1
 
     resp = InsightResponse(
@@ -166,6 +176,29 @@ def transform_insight(domain_insight) -> InsightResponse:
         resp.explanation = llm_output.get("explanation")
         resp.uncertainty = llm_output.get("uncertainty")
         resp.suggested_next_step = llm_output.get("suggested_next_step")
-    
+
+    # DETERMINISTIC FALLBACK: Always populate explanation fields if LLM didn't.
+    # This ensures every insight has human-readable text without requiring an API key.
+    if not resp.explanation:
+        from app.engine.explanation_generator import generate_deterministic_explanation
+
+        governance_level = min(5, max(1, int(confidence * 5) + 1))
+
+        deterministic = generate_deterministic_explanation(
+            metric_key=metric_key,
+            insight_type=domain_insight.insight_type or "change",
+            evidence=evidence,
+            metadata=metadata,
+            confidence=confidence,
+            evidence_grade=evidence_grade,
+            claim_policy=claim_policy,
+            governance_claim_level=governance_level,
+            domain_key=domain_key.value if domain_key else None,
+        )
+
+        resp.explanation = deterministic.get("explanation")
+        resp.uncertainty = deterministic.get("uncertainty")
+        resp.suggested_next_step = deterministic.get("suggested_next_step")
+
     return resp
 

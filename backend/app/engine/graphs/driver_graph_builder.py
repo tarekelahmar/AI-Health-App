@@ -3,7 +3,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from math import copysign
 from datetime import date, timedelta, datetime
 
-from app.domain.metric_registry import METRICS
+from app.domain.metrics.registry import METRIC_REGISTRY as METRICS
 from app.engine.attribution.lagged_effects import LaggedEffectEngine
 from app.engine.attribution.interaction_effects import InteractionAttributionEngine
 from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository

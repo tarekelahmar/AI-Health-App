@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Index, JSON
 
 from app.core.database import Base
 
@@ -41,7 +40,8 @@ class Consent(Base):
     onboarding_completed_at = Column(DateTime, nullable=True)
 
     # Optional: store full consent text for audit
-    consent_text_json = Column(JSONB, nullable=True)
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    consent_text_json = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

@@ -206,9 +206,15 @@ def synthesize_narrative(
                 meta = metadata_str
         except Exception:
             meta = {}
+
+        # Skip "insufficient_data" insights - they're informational, not actionable
+        insight_type = getattr(it, "insight_type", None) or meta.get("type")
+        if insight_type == "insufficient_data":
+            continue
+
         metric_key = meta.get("metric_key") or getattr(it, "metric_key", None)
         confidence = getattr(it, "confidence_score", None) or meta.get("confidence")
-        typ = meta.get("type") or getattr(it, "insight_type", None) or "insight"
+        typ = meta.get("type") or insight_type or "insight"
 
         # Safety surfaced
         safety = meta.get("safety")

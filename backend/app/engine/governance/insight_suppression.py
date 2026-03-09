@@ -52,10 +52,8 @@ class InsightSuppressionService:
                 return True, "Duplicate check failed (missing timestamp)"
             days_since = (today - dup_ts).days
             if days_since < self.MIN_DAYS_BETWEEN_REPEATS:
-                if insight.confidence_score < self.MIN_CONFIDENCE_FOR_REPEAT:
-                    return True, f"Low-confidence repeat (confidence={insight.confidence_score:.2f}) within {days_since} days"
-                # High confidence repeats are allowed after MIN_DAYS_BETWEEN_REPEATS
-                return False, None
+                # Always suppress duplicates within the repeat window
+                return True, f"Duplicate insight for same metric within {days_since} days (min: {self.MIN_DAYS_BETWEEN_REPEATS})"
 
         # NOTE: Daily cap is enforced as a batch in loop_runner (top-N by confidence),
         # so we don't do per-item cap checks here (it would be order-dependent and
@@ -84,15 +82,18 @@ class InsightSuppressionService:
         
         if not metric_key:
             return None
-        
+
         # Look for recent insights within window; filter by metric_key in metadata_json (Python-side)
+        # IMPORTANT: Only look at insights created BEFORE this run (generated_at < today)
+        # to avoid treating insights from the same run as duplicates
         cutoff = today - timedelta(days=self.MIN_DAYS_BETWEEN_REPEATS)
-        
+
         candidates = (
             self.db.query(Insight)
             .filter(
                 Insight.user_id == user_id,
                 Insight.generated_at >= cutoff,
+                Insight.generated_at < today,  # Only consider insights from BEFORE this run
                 Insight.id != insight.id,  # Exclude self
             )
             .order_by(Insight.generated_at.desc())

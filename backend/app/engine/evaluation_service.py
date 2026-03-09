@@ -15,7 +15,7 @@ from app.domain.models.evaluation_result import EvaluationResult
 
 try:
     # Optional: metric registry helps determine "expected direction"
-    from app.domain.metric_registry import get_metric_spec  # type: ignore
+    from app.domain.metrics.registry import get_metric_spec  # type: ignore
 except Exception:
     get_metric_spec = None  # type: ignore
 
@@ -167,7 +167,7 @@ def _expected_direction_for_experiment(exp: Experiment, metric_key: str) -> Opti
     if get_metric_spec is not None:
         try:
             spec = get_metric_spec(metric_key)
-            # support either naming
+            # support either legacy or new naming
             higher_is_better = getattr(spec, "higher_is_better", None)
             higher_is_worse = getattr(spec, "higher_is_worse", None)
             if higher_is_better is True:
@@ -180,6 +180,14 @@ def _expected_direction_for_experiment(exp: Experiment, metric_key: str) -> Opti
                 if polarity.lower() in {"higher_is_better", "positive"}:
                     return "up"
                 if polarity.lower() in {"higher_is_worse", "negative"}:
+                    return "down"
+            # Phase 1.1 unified registry: use canonical `direction` when available.
+            direction = getattr(spec, "direction", None)
+            if isinstance(direction, str):
+                d = direction.lower()
+                if d in {"higher_better", "higher_is_better", "positive"}:
+                    return "up"
+                if d in {"lower_better", "higher_is_worse", "negative"}:
                     return "down"
         except Exception:
             pass

@@ -149,79 +149,45 @@ export function InsightFeed({ insights, filterByMetric }: Props) {
             )}
 
             {/* Safety metadata (optional) */}
-            {(insight as any)?.evidence?.safety && (
+            {insight.evidence?.safety && (
               <div className="mt-2">
-                <SafetyBadge safety={(insight as any).evidence.safety} />
-                <SafetyDetails safety={(insight as any).evidence.safety} />
+                <SafetyBadge safety={insight.evidence.safety as any} />
+                <SafetyDetails safety={insight.evidence.safety as any} />
               </div>
             )}
 
-            {/* STEP S: Evidence section (expandable but always available) */}
-            {insight.evidence && Object.keys(insight.evidence).length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs text-gray-600 font-medium">
-                  Evidence (click to expand)
-                </summary>
-                <div className="mt-1 text-xs bg-gray-50 p-2 rounded">
-                  {insight.evidence.type && (
-                    <div className="mb-2">
-                      <strong>Type:</strong> {insight.evidence.type}
-                      {insight.evidence.strength && (
-                        <span className="ml-2 text-gray-600">({insight.evidence.strength})</span>
-                      )}
-                    </div>
-                  )}
-                  {insight.evidence.direction && (
-                    <div className="mb-1">
-                      <strong>Direction:</strong> {insight.evidence.direction}
-                    </div>
-                  )}
-                  {insight.evidence.z_score !== undefined && (
-                    <div className="mb-1">
-                      <strong>Z-score:</strong> {insight.evidence.z_score.toFixed(2)}
-                    </div>
-                  )}
-                  {insight.evidence.slope_per_day !== undefined && (
-                    <div className="mb-1">
-                      <strong>Slope:</strong> {insight.evidence.slope_per_day.toFixed(2)} per day
-                    </div>
-                  )}
-                  {insight.evidence.instability_ratio !== undefined && (
-                    <div className="mb-1">
-                      <strong>Instability ratio:</strong> {insight.evidence.instability_ratio.toFixed(2)}x
-                    </div>
-                  )}
-                  {insight.evidence.recent_mean !== undefined && insight.evidence.baseline_mean !== undefined && (
-                    <div className="mb-1">
-                      <strong>Recent mean:</strong> {insight.evidence.recent_mean.toFixed(2)} vs Baseline: {insight.evidence.baseline_mean.toFixed(2)}
-                    </div>
-                  )}
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-gray-500">Full evidence (JSON)</summary>
-                    <pre className="mt-1 text-xs bg-gray-100 p-2 rounded overflow-x-auto">
-                      {JSON.stringify(insight.evidence, null, 2)}
-                    </pre>
-                  </details>
-                </div>
-              </details>
+            {/* Human-readable explanation (primary display) */}
+            {insight.explanation && (
+              <div className="mt-3 p-3 bg-gray-50 rounded-lg space-y-2">
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  {insight.explanation}
+                </p>
+
+                {insight.uncertainty && (
+                  <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 p-2 rounded-md">
+                    <span className="shrink-0 mt-0.5 text-amber-500">ℹ</span>
+                    <span>{insight.uncertainty}</span>
+                  </div>
+                )}
+
+                {insight.suggested_next_step && (
+                  <div className="flex items-start gap-2 text-xs text-gray-700 bg-teal-50 border border-teal-100 p-2 rounded-md">
+                    <span className="shrink-0 mt-0.5 text-teal-600">→</span>
+                    <span><span className="font-medium">Next step:</span> {insight.suggested_next_step}</span>
+                  </div>
+                )}
+              </div>
             )}
 
-            {(insight as any).explanation && (
+            {/* Raw evidence — developer/advanced toggle */}
+            {insight.evidence && Object.keys(insight.evidence).length > 0 && (
               <details className="mt-2">
-                <summary className="cursor-pointer text-xs text-gray-500">
-                  Explanation
+                <summary className="cursor-pointer text-xs text-gray-400 hover:text-gray-500">
+                  View raw evidence data
                 </summary>
-                <p className="mt-1 text-sm text-gray-700">
-                  {(insight as any).explanation}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Uncertainty: {(insight as any).uncertainty}
-                </p>
-                {(insight as any).suggested_next_step && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Next step: {(insight as any).suggested_next_step}
-                  </p>
-                )}
+                <pre className="mt-1 text-xs bg-gray-100 p-2 rounded overflow-x-auto text-gray-500">
+                  {JSON.stringify(insight.evidence, null, 2)}
+                </pre>
               </details>
             )}
 

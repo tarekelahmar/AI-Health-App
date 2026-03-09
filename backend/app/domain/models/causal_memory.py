@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Index, JSON
 
 from app.core.database import Base
 
@@ -32,7 +31,8 @@ class CausalMemory(Base):
     last_confirmed_at = Column(DateTime, nullable=True)  # When this was last confirmed by new evidence
     status = Column(String(20), nullable=False, default="tentative")  # "tentative" | "confirmed" | "deprecated"
 
-    supporting_evaluations_json = Column(JSONB, nullable=True)  # List of evaluation IDs and their contributions
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    supporting_evaluations_json = Column(JSON, nullable=True)  # List of evaluation IDs and their contributions
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

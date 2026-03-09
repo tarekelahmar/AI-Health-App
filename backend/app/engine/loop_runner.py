@@ -1,42 +1,38 @@
 import json
 import logging
-from sqlalchemy.orm import Session
 from datetime import datetime
 
-from app.domain.metric_registry import METRICS
+from sqlalchemy.orm import Session
+
+from app.domain.health_domains import domain_for_signal
 from app.domain.metric_policies import get_metric_policy
+from app.domain.metrics.registry import METRIC_REGISTRY, get_metric_spec
 from app.domain.models.baseline import Baseline
+from app.domain.repositories.audit_repository import AuditRepository
+from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
+from app.domain.repositories.explanation_repository import ExplanationRepository
+from app.domain.repositories.insight_repository import InsightRepository
+from app.domain.repositories.symptom_repository import SymptomRepository
+from app.engine.detectors import detect_change, detect_instability, detect_trend
+from app.engine.detectors.change_point_detector import detect_change_points
+from app.engine.statistics.multiple_testing import apply_fdr_to_insights
+from app.engine.domain_status import compute_domain_statuses
+from app.engine.governance.claim_policy import get_policy, validate_language
+from app.engine.governance.insight_suppression import InsightSuppressionService
+from app.engine.guardrails import apply_escalation_rules, filter_insights
+from app.engine.guardrails.safety_guardrails import run_safety_gate
+from app.engine.metric_guardrails import apply_guardrails
+from app.engine.insight_factory import (
+    make_change_insight_payload,
+    make_instability_insight_payload,
+    make_trend_insight_payload,
+)
 from app.engine.signal_builder import fetch_recent_values
 
 logger = logging.getLogger(__name__)
-# Import apply_guardrails - need to handle the guardrails.py file vs guardrails/ package conflict
-# Import directly from the file using importlib
-import importlib.util
-import os
-backend_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-guardrails_file_path = os.path.join(backend_path, "app", "engine", "guardrails.py")
-spec = importlib.util.spec_from_file_location("app.engine.guardrails_file", guardrails_file_path)
-guardrails_file = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(guardrails_file)
-apply_guardrails = guardrails_file.apply_guardrails
 
-from app.engine.guardrails.safety_guardrails import run_safety_gate
-from app.engine.guardrails import filter_insights, apply_escalation_rules
-from app.engine.detectors import detect_change, detect_trend, detect_instability
-from app.engine.insight_factory import (
-    make_change_insight_payload,
-    make_trend_insight_payload,
-    make_instability_insight_payload,
-)
-from app.engine.governance.insight_suppression import InsightSuppressionService
-from app.domain.health_domains import domain_for_signal
-from app.engine.domain_status import compute_domain_statuses
-from app.engine.governance.claim_policy import validate_language, get_policy
-from app.domain.repositories.insight_repository import InsightRepository
-from app.domain.repositories.audit_repository import AuditRepository
-from app.domain.repositories.explanation_repository import ExplanationRepository
-from app.domain.repositories.symptom_repository import SymptomRepository
-from app.domain.repositories.daily_checkin_repository import DailyCheckInRepository
+# Local alias so validation tests can still monkeypatch the metric set.
+METRICS = METRIC_REGISTRY
 
 
 def run_loop(db: Session, user_id: int) -> dict:
@@ -54,11 +50,22 @@ def run_loop(db: Session, user_id: int) -> dict:
     # 0) Safety gate - check for red flags BEFORE normal detectors
     latest_metrics = {}
     for metric_key in METRICS.keys():
+        # Phase 1.1: pull canonical spec and filter raw values using registry bounds
+        try:
+            spec = get_metric_spec(metric_key)
+        except KeyError:
+            # Governance: skip unknown/removed metrics rather than failing the loop.
+            continue
+
         values = fetch_recent_values(
             db=db, user_id=user_id, metric_key=metric_key, window_days=3
         )
-        if values:
-            latest_metrics[metric_key] = float(sum(values) / len(values))
+        validated_values = [
+            v for v in values
+            if spec.valid_range[0] <= v <= spec.valid_range[1]
+        ]
+        if validated_values:
+            latest_metrics[metric_key] = float(sum(validated_values) / len(validated_values))
 
     # Wire symptom tags from check-ins and symptoms into safety gate
     symptom_tags = []
@@ -135,6 +142,12 @@ def run_loop(db: Session, user_id: int) -> dict:
         existing_today_pre_run = 0
 
     for metric_key in METRICS.keys():
+        # Phase 1.1: centralize metric metadata + bounds
+        try:
+            spec = get_metric_spec(metric_key)
+        except KeyError:
+            # If a metric was removed from the registry, skip it safely.
+            continue
         # Get metric policy
         try:
             policy = get_metric_policy(metric_key)
@@ -166,9 +179,14 @@ def run_loop(db: Session, user_id: int) -> dict:
             continue
 
         # 1) Guardrails check (uses last 5 values from change window)
-        recent_values_for_guard = fetch_recent_values(
+        raw_values_for_guard = fetch_recent_values(
             db=db, user_id=user_id, metric_key=metric_key, window_days=change_window_days
-        )[-5:]
+        )
+        validated_values_for_guard = [
+            v for v in raw_values_for_guard
+            if spec.valid_range[0] <= v <= spec.valid_range[1]
+        ]
+        recent_values_for_guard = validated_values_for_guard[-5:]
         guardrail = apply_guardrails(metric_key=metric_key, values=recent_values_for_guard)
         if guardrail:
             dk = domain_for_signal(metric_key)
@@ -192,9 +210,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 2) Change detection (7d)
         if "change" in policy.allowed_insights and policy.change:
-            change_values = fetch_recent_values(
+            raw_change_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=change_window_days
             )
+
+            change_values = [
+                v for v in raw_change_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(change_values) < 5:
@@ -202,8 +225,8 @@ def run_loop(db: Session, user_id: int) -> dict:
                 # Create "insufficient data" insight instead of silently skipping
                 insight = repo.create(
                     user_id=user_id,
-                    title=f"Insufficient data for {metric_key}",
-                    description=f"Not enough data points ({len(change_values)} < 5) to detect changes in {metric_key}. Please collect more data.",
+                    title=f"Insufficient data for {METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace('_', ' ').title()}",
+                    description=f"Not enough data points ({len(change_values)} < 5) to detect changes. Please collect more data.",
                     insight_type="insufficient_data",
                     confidence_score=1.0,  # High confidence that data is insufficient
                     metadata_json=json.dumps({
@@ -273,14 +296,12 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    # Use policy-compliant language
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Recent data shows {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'a change'} in {metric_key}."
+                    # Use human-readable, policy-compliant language
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    direction = evidence.get("direction", "")
+                    dir_word = "increased" if direction == "up" else "decreased" if direction == "down" else "changed"
+                    title = f"{display_name} has {dir_word}"
+                    summary = f"A change was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)  # Cap confidence to policy level
                 
                 # Persist evidence in a shape that satisfies invariants:
@@ -341,9 +362,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 3) Trend detection (14d)
         if "trend" in policy.allowed_insights and policy.trend:
-            trend_values = fetch_recent_values(
+            raw_trend_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=trend_window_days
             )
+
+            trend_values = [
+                v for v in raw_trend_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(trend_values) < 7:
@@ -397,13 +423,11 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Data {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'shows a trend'} in {metric_key}."
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    direction = evidence.get("direction", "")
+                    dir_word = "trending up" if direction == "up" else "trending down" if direction == "down" else "showing a trend"
+                    title = f"{display_name} {dir_word}"
+                    summary = f"A trend was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)
                 
                 evidence_payload = dict(evidence)
@@ -448,9 +472,14 @@ def run_loop(db: Session, user_id: int) -> dict:
 
         # 4) Instability detection (14d)
         if "instability" in policy.allowed_insights and policy.instability:
-            inst_values = fetch_recent_values(
+            raw_inst_values = fetch_recent_values(
                 db=db, user_id=user_id, metric_key=metric_key, window_days=instability_window_days
             )
+
+            inst_values = [
+                v for v in raw_inst_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
             
             # WEEK 4: Check for insufficient data
             if len(inst_values) < 7:
@@ -504,13 +533,9 @@ def run_loop(db: Session, user_id: int) -> dict:
                             exc_info=True,
                         )
                         continue
-                    example = (
-                        policy_for_level.example_language.split(":", 1)[1].strip()
-                        if ":" in policy_for_level.example_language
-                        else policy_for_level.example_language
-                    )
-                    title = f"{metric_key}: {example}"
-                    summary = f"Variability {policy_for_level.must_use_phrases[0] if policy_for_level.must_use_phrases else 'has changed'} in {metric_key}."
+                    display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                    title = f"{display_name} variability has changed"
+                    summary = f"Increased variability was detected in your {display_name}."
                     confidence = min(confidence, claim_level / 5.0)
                 
                 evidence_payload = dict(evidence)
@@ -553,6 +578,64 @@ def run_loop(db: Session, user_id: int) -> dict:
                 except Exception as e:
                     logger.warning(f"Failed to create audit event for instability insight {insight.id}: {e}")
 
+        # 5) Change point detection (Phase 2.3) - uses 30-day window
+        if "change" in policy.allowed_insights:
+            cp_window_days = 30
+            raw_cp_values = fetch_recent_values(
+                db=db, user_id=user_id, metric_key=metric_key, window_days=cp_window_days
+            )
+            cp_values = [
+                v for v in raw_cp_values
+                if spec.valid_range[0] <= v <= spec.valid_range[1]
+            ]
+            if len(cp_values) >= 14:
+                cp_result = detect_change_points(
+                    metric_key=metric_key,
+                    values=cp_values,
+                )
+                if cp_result and cp_result.change_points:
+                    # Only surface the most recent change point with high confidence
+                    recent_cp = max(cp_result.change_points, key=lambda cp: cp.index)
+                    if recent_cp.confidence >= 0.5:
+                        dk = domain_for_signal(metric_key)
+                        cp_evidence = {
+                            "type": "change_point",
+                            "metric_key": metric_key,
+                            "domain_key": dk.value if dk else None,
+                            "window_days": cp_window_days,
+                            "n_points": len(cp_values),
+                            "change_point_index": recent_cp.index,
+                            "magnitude": recent_cp.magnitude,
+                            "direction": recent_cp.direction,
+                            "before_mean": recent_cp.before_mean,
+                            "after_mean": recent_cp.after_mean,
+                            "confidence": recent_cp.confidence,
+                            "n_segments": cp_result.n_segments,
+                            "method": cp_result.method,
+                        }
+                        cp_display_name = METRIC_REGISTRY[metric_key].display_name if metric_key in METRIC_REGISTRY else metric_key.replace("_", " ").title()
+                        cp_title = f"{cp_display_name}: structural shift detected"
+                        cp_summary = (
+                            f"A structural change was detected in your {cp_display_name}: "
+                            f"values shifted from {recent_cp.before_mean:.1f} to {recent_cp.after_mean:.1f}."
+                        )
+                        cp_confidence = recent_cp.confidence
+                        # Governance: cap by claim level
+                        claim_level = min(5, max(1, int(cp_confidence * 5) + 1))
+                        cp_confidence = min(cp_confidence, claim_level / 5.0)
+                        cp_evidence["claim_level"] = claim_level
+                        meta = dict(cp_evidence)
+                        meta["evidence"] = dict(cp_evidence)
+                        insight = repo.create(
+                            user_id=user_id,
+                            title=cp_title,
+                            description=cp_summary,
+                            insight_type="change_point",
+                            confidence_score=cp_confidence,
+                            metadata_json=json.dumps(meta),
+                        )
+                        created.append(insight)
+
     # Apply guardrails: filter weak insights and apply escalation rules
     # Convert Insight objects to dicts for filtering
     insights_dicts = []
@@ -571,18 +654,54 @@ def run_loop(db: Session, user_id: int) -> dict:
         effect_size = metadata.get("effect_size", 0.0)
         if not effect_size:
             effect_size = abs(metadata.get("delta", 0.0)) or abs(metadata.get("z_score", 0.0)) or 0.0
-        
+
+        # Compute coverage from n_points / window_days if not explicitly set
+        # Coverage is required by filter_insights (min_coverage=0.5)
+        coverage = metadata.get("coverage", 0.0)
+        if not coverage:
+            n_points = metadata.get("n_points", 0)
+            window_days = metadata.get("window_days", 7)
+            if n_points and window_days:
+                coverage = min(1.0, n_points / window_days)
+            else:
+                # Default to 1.0 if we have an insight (data was sufficient to create it)
+                coverage = 1.0
+
         insights_dicts.append({
             "id": ins.id,
             "user_id": ins.user_id,
             "metric_key": metadata.get("metric_key", "unknown"),
             "confidence": float(ins.confidence_score or 0.0),
-            "coverage": float(metadata.get("coverage", 0.0)),
+            "coverage": float(coverage),
             "effect_size": float(effect_size),
             "evidence": metadata,
             "insight": ins,  # Keep reference to original
         })
     
+    # 6) FDR correction (Phase 2.4) — adjust for multiple testing across all insights
+    insights_dicts, fdr_result = apply_fdr_to_insights(insights_dicts, alpha=0.10)
+    logger.info(
+        f"FDR correction: {fdr_result.n_discoveries} discoveries out of "
+        f"{len(insights_dicts)} tests (expected false: {fdr_result.expected_false_discoveries})"
+    )
+
+    # Annotate the original Insight objects with FDR metadata
+    for item in insights_dicts:
+        ins = item.get("insight")
+        if ins and "fdr_adjusted_p" in item:
+            try:
+                metadata = {}
+                if ins.metadata_json:
+                    if isinstance(ins.metadata_json, dict):
+                        metadata = ins.metadata_json
+                    else:
+                        metadata = json.loads(ins.metadata_json)
+                metadata["fdr_adjusted_p"] = item["fdr_adjusted_p"]
+                metadata["fdr_significant"] = item["fdr_significant"]
+                ins.metadata_json = json.dumps(metadata)
+            except Exception:
+                pass  # Best-effort FDR annotation
+
     # Filter and escalate
     filtered = filter_insights(insights_dicts)
     escalated = apply_escalation_rules(filtered)

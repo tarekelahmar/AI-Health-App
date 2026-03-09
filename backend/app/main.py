@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 import os
 
 # Load environment variables from .env file (for os.getenv() calls)
-load_dotenv()
+# override=True ensures .env values take precedence over empty shell vars
+load_dotenv(override=True)
 
 from app.config.settings import get_settings, validate_config
 from app.config.logging import setup_logging
@@ -53,6 +54,19 @@ from app.api.v1.personal_model import router as personal_model_router
 from app.api.v1.audit import router as audit_router
 from app.api.v1.system import router as system_router, public_router as system_public_router
 from app.api.v1.health_domains import router as health_domains_router
+from app.api.v1.risk import router as risk_router
+from app.api.v1.regime import router as regime_router
+from app.api.v1.forecasts import router as forecasts_router
+from app.api.v1.correlations import router as correlations_router
+from app.api.v1.wellness_score import router as wellness_score_router
+from app.api.v1.journal import router as journal_router
+from app.api.v1.journal_chat import router as journal_chat_router
+from app.api.v1.life_domains import router as life_domains_router
+from app.api.v1.preferences import router as preferences_router
+from app.api.v1.milestones import router as milestones_router
+from app.api.v1.domain_checkins import router as domain_checkins_router
+from app.api.v1.actions import router as actions_router
+from app.integrations.health import router as providers_health_router
 from app.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -211,6 +225,19 @@ app.include_router(audit_router)
 app.include_router(system_router)
 app.include_router(system_public_router)
 app.include_router(health_domains_router)
+app.include_router(risk_router)
+app.include_router(regime_router)
+app.include_router(forecasts_router)
+app.include_router(correlations_router)
+app.include_router(wellness_score_router)
+app.include_router(journal_router)
+app.include_router(journal_chat_router)
+app.include_router(life_domains_router)
+app.include_router(preferences_router)
+app.include_router(milestones_router)
+app.include_router(domain_checkins_router)
+app.include_router(actions_router)
+app.include_router(providers_health_router)
 
 # Observability
 app.include_router(metrics_system_router)

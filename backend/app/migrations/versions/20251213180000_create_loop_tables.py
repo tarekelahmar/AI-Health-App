@@ -171,12 +171,22 @@ def upgrade():
         op.create_index("ix_evaluation_results_user_id", "evaluation_results", ["user_id"])
         op.create_index("ix_evaluation_results_metric_key", "evaluation_results", ["metric_key"])
     else:
-        existing_indexes = [idx['name'] for idx in inspector.get_indexes("evaluation_results")]
+        existing_indexes = [idx["name"] for idx in inspector.get_indexes("evaluation_results")]
+        existing_cols = [c["name"] for c in inspector.get_columns("evaluation_results")]
+
         if "ix_evaluation_results_experiment_id" not in existing_indexes:
             op.create_index("ix_evaluation_results_experiment_id", "evaluation_results", ["experiment_id"])
+
         if "ix_evaluation_results_user_id" not in existing_indexes:
             op.create_index("ix_evaluation_results_user_id", "evaluation_results", ["user_id"])
-        if "ix_evaluation_results_metric_key" not in existing_indexes:
+
+        # SCHEMA GOVERNANCE: Some legacy databases may have evaluation_results without metric_key.
+        # To avoid migration failure and to support new query patterns, add the column if missing
+        # and only then create the composite index.
+        if "metric_key" not in existing_cols:
+            op.add_column("evaluation_results", sa.Column("metric_key", sa.String(length=100), nullable=True))
+
+        if "ix_evaluation_results_metric_key" not in existing_indexes and "metric_key" in existing_cols + ["metric_key"]:
             op.create_index("ix_evaluation_results_metric_key", "evaluation_results", ["metric_key"])
 
 

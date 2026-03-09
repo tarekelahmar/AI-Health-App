@@ -1,7 +1,7 @@
 from app.core.signal import Signal
 
-# AUDIT FIX: Use single metric registry
-from app.domain.metric_registry import METRICS as CANONICAL_METRICS
+# AUDIT FIX: Use single metric registry (Phase 1.1 unified registry)
+from app.domain.metrics.registry import METRIC_REGISTRY as CANONICAL_METRICS
 from app.services.data_quality.normalize import normalize_value
 from app.services.data_quality.validate import validate_value
 from app.services.data_quality.reliability import score_reliability

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Index, JSON
 
 from app.core.database import Base
 
@@ -30,10 +29,11 @@ class DataProvenance(Base):
     received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     is_validated = Column(Boolean, nullable=False, default=False)
-    validation_errors = Column(JSONB, nullable=True)  # List of validation errors if any
+    # Using JSON instead of JSONB for SQLite compatibility in tests
+    validation_errors = Column(JSON, nullable=True)  # List of validation errors if any
 
     # Quality metadata
-    quality_score = Column(JSONB, nullable=True)  # Full quality score breakdown
+    quality_score = Column(JSON, nullable=True)  # Full quality score breakdown
 
     __table_args__ = (
         Index("ix_data_provenance_user_run", "user_id", "ingestion_run_id"),
