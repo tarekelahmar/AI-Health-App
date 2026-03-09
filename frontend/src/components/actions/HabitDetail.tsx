@@ -33,6 +33,11 @@ interface ScoreDataPoint {
   score: number;
 }
 
+export interface HabitLog {
+  log_date: string;
+  completed: boolean;
+}
+
 export interface HabitDetailProps {
   /** Habit display title */
   title: string;
@@ -56,8 +61,8 @@ export interface HabitDetailProps {
   interpretation: string;
   /** Other factors active in the same period */
   confoundingFactors: string[];
-  /** Dates (ISO strings) when the habit was completed */
-  completedDates: string[];
+  /** Per-day habit log entries */
+  habitLogs: HabitLog[];
   /** Override today's date for testing (ISO string, defaults to real today) */
   today?: string;
   /** Back navigation callback */
@@ -72,18 +77,6 @@ function formatSinceDate(iso: string): string {
   return date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
 }
 
-/** Build a sequential list of days for the current month (no week structure). */
-function getMonthDays(today: string): { date: string; isFuture: boolean; isToday: boolean }[] {
-  const [y, m] = today.split('-').map(Number);
-  const daysInMonth = new Date(y, m, 0).getDate(); // m is already 1-indexed here
-
-  const days: { date: string; isFuture: boolean; isToday: boolean }[] = [];
-  for (let day = 1; day <= daysInMonth; day++) {
-    const iso = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    days.push({ date: iso, isFuture: iso > today, isToday: iso === today });
-  }
-  return days;
-}
 
 // -- Before / After SVG Chart ---------------------------------------------
 
@@ -194,70 +187,58 @@ function BeforeAfterChart({
 // -- Consistency Calendar -------------------------------------------------
 // Compact flowing grid — one 16px square per day, no week structure.
 
-const SQ = 16;
-const SQ_GAP = 4;
+function ConsistencyCalendar({ logs }: { logs: HabitLog[] }) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayDate = now.getDate();
 
-function ConsistencyCalendar({
-  completedDates,
-  today,
-}: {
-  completedDates: string[];
-  today: string;
-}) {
-  const completedSet = new Set(completedDates);
-  const days = getMonthDays(today);
+  const completedSet = new Set(
+    logs.filter((l) => l.completed).map((l) => l.log_date),
+  );
+
+  const squares: React.ReactNode[] = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isCompleted = completedSet.has(dateStr);
+    const isToday = day === todayDate;
+    const isFuture = day > todayDate;
+
+    let bg = JT.surface;
+    let opacity = isFuture ? 0.4 : 1;
+    if (!isFuture) {
+      bg = isCompleted ? JT.positive : JT.negativeLight;
+    }
+
+    squares.push(
+      <div
+        key={day}
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 4,
+          backgroundColor: bg,
+          opacity,
+          border: isToday ? `1.5px solid ${JT.accent}` : 'none',
+          flexShrink: 0,
+        }}
+      />,
+    );
+  }
 
   return (
     <div>
-      {/* Flowing square grid — wraps naturally within the card */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SQ_GAP }}>
-        {days.map((day) => {
-          const completed = completedSet.has(day.date);
-
-          let bg: string;
-          let opacity = 1;
-          if (day.isFuture) {
-            bg = JT.surface;
-            opacity = 0.4;
-          } else if (completed) {
-            bg = JT.positive;
-          } else {
-            bg = JT.negativeLight;
-          }
-
-          return (
-            <div
-              key={day.date}
-              style={{
-                width: SQ,
-                height: SQ,
-                borderRadius: 4,
-                background: bg,
-                opacity,
-                ...(day.isToday
-                  ? { border: `1.5px solid ${JT.accent}`, boxSizing: 'border-box' as const }
-                  : {}),
-              }}
-            />
-          );
-        })}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {squares}
       </div>
-
-      {/* Legend — 10px squares + 10px text, 12px gap, 10px margin-top */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          marginTop: 10,
-          alignItems: 'center',
-        }}
-      >
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <div style={{ width: 10, height: 10, borderRadius: 3, background: JT.positive }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: JT.positive }} />
           <span style={{ fontSize: 10, color: JT.textMuted }}>Active</span>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <div style={{ width: 10, height: 10, borderRadius: 3, background: JT.negativeLight }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: JT.negativeLight }} />
           <span style={{ fontSize: 10, color: JT.textMuted }}>Missed</span>
         </div>
       </div>
@@ -279,7 +260,7 @@ export function HabitDetail({
   scoreData,
   interpretation,
   confoundingFactors,
-  completedDates,
+  habitLogs,
   today,
   onBack,
 }: HabitDetailProps) {
@@ -427,7 +408,7 @@ export function HabitDetail({
       {/* ---- Consistency calendar ---- */}
       <div style={{ background: JT.card, borderRadius: 16, padding: '14px 16px' }}>
         <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>This month</div>
-        <ConsistencyCalendar completedDates={completedDates} today={todayISO} />
+        <ConsistencyCalendar logs={habitLogs} />
       </div>
     </div>
   );

@@ -48,9 +48,15 @@ const DEMO_HABIT = {
   interpretation:
     "You've never scored below 5.5 on an exercise day. On non-exercise days, your range is 2\u20137. Exercise doesn't make you feel great \u2014 it prevents crashes. It's your floor, not your ceiling.",
   confoundingFactors: ['Started sertraline', 'Office routine', 'Phone boundaries'],
-  completedDates: [
-    '2026-03-01', '2026-03-02', '2026-03-03', '2026-03-05',
-    '2026-03-06', '2026-03-07', '2026-03-08',
+  habitLogs: [
+    { log_date: '2026-03-01', completed: true },
+    { log_date: '2026-03-02', completed: true },
+    { log_date: '2026-03-03', completed: true },
+    { log_date: '2026-03-04', completed: false },
+    { log_date: '2026-03-05', completed: true },
+    { log_date: '2026-03-06', completed: true },
+    { log_date: '2026-03-07', completed: true },
+    { log_date: '2026-03-08', completed: true },
   ],
 };
 
