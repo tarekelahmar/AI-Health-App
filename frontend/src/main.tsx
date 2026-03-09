@@ -17,6 +17,7 @@ import JournalPage from './pages/JournalPage'
 import InsightsFeedPage from './pages/InsightsFeedPage'
 import NarrativesPage from './pages/NarrativesPage'
 import SettingsPage from './pages/SettingsPage'
+import ActionDetailPage from './pages/ActionDetailPage'
 import './index.css'
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
         <Route path="/insights" element={<InsightsFeedPage />} />
         <Route path="/narratives" element={<NarrativesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/actions/:id" element={<ActionDetailPage />} />
       </Route>
 
       {/* Default redirect */}
